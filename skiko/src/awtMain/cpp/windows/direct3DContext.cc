@@ -18,14 +18,12 @@ extern "C"
         {
             SkSurface *surface = fromJavaPointer<SkSurface *>(surfacePtr);
             GrDirectContext *context = fromJavaPointer<GrDirectContext *>(contextPtr);
-            surface->flushAndSubmit(true);
-            surface->flush(SkSurface::BackendSurfaceAccess::kPresent, GrFlushInfo());
-            context->flush({});
-            context->submit(true);
+            context->flush(surface, SkSurfaces::BackendSurfaceAccess::kPresent, GrFlushInfo());
+            context->submit(GrSyncCpu::kYes);
         }
         __except(EXCEPTION_EXECUTE_HANDLER) {
             auto code = GetExceptionCode();
-            throwJavaException(env, __FUNCTION__, code);
+            throwJavaRenderExceptionByExceptionCode(env, __FUNCTION__, code);
         }
     }
 }

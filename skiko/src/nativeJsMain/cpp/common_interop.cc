@@ -1,5 +1,5 @@
 #include "common.h"
-#include "src/utils/SkUTF.h"
+#include "src/base/SkUTF.h"
 #include "include/core/SkImageInfo.h"
 #include "TextStyle.h"
 #include <stdio.h>
@@ -377,6 +377,25 @@ void callVoidCallback(KInteropPointer cb) {
         _callCallback($0);
     }, cb);
 }
+
+
+SKIKO_EXPORT KByte skia_memGetByte(KByte* address) { return *address; }
+SKIKO_EXPORT void skia_memSetByte(KByte* address, KByte value) { address[0] = value; }
+
+SKIKO_EXPORT KChar skia_memGetChar(KChar* address) { return *address; }
+SKIKO_EXPORT void skia_memSetChar(KChar* address, KChar value) { address[0] = value; }
+
+SKIKO_EXPORT KShort skia_memGetShort(KShort* address) { return *address; }
+SKIKO_EXPORT void skia_memSetShort(KShort* address, KShort value) { address[0] = value; }
+
+SKIKO_EXPORT KInt skia_memGetInt(KInt* address) { return *address; }
+SKIKO_EXPORT void skia_memSetInt(KInt* address, KInt value) { address[0] = value; }
+
+SKIKO_EXPORT KFloat skia_memGetFloat(KFloat* address) { return *address; }
+SKIKO_EXPORT void skia_memSetFloat(KFloat* address, KFloat value) { address[0] = value; }
+
+SKIKO_EXPORT KDouble skia_memGetDouble(KDouble* address) { return *address; }
+SKIKO_EXPORT void skia_memSetDouble(KDouble* address, KDouble value) { address[0] = value; }
 
 #else // __EMSCRIPTEN__
 

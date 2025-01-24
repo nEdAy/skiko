@@ -1,16 +1,18 @@
 package org.jetbrains.skiko.paragraph
 
-import org.jetbrains.skia.Color
-import org.jetbrains.skia.FontFeature
+import org.jetbrains.skia.*
 import org.jetbrains.skia.impl.use
+import org.jetbrains.skia.jbMonoPath
 import org.jetbrains.skia.paragraph.DecorationLineStyle
 import org.jetbrains.skia.paragraph.DecorationStyle
 import org.jetbrains.skia.paragraph.Shadow
 import org.jetbrains.skia.paragraph.TextStyle
 import org.jetbrains.skia.paragraph.TextStyleAttribute
 import org.jetbrains.skia.tests.assertContentCloseEnough
+import org.jetbrains.skia.tests.makeFromResource
 import org.jetbrains.skiko.KotlinBackend
 import org.jetbrains.skiko.kotlinBackend
+import org.jetbrains.skiko.tests.runTest
 import kotlin.test.*
 
 class TextStyleTest {
@@ -132,11 +134,41 @@ class TextStyleTest {
         }
     }
 
+    @Test
     fun textStyleBaselineTest() {
         TextStyle().use { textStyle ->
             assertEquals(0.0f, textStyle.baselineShift)
             textStyle.baselineShift = 4f
             assertEquals(4f, textStyle.baselineShift)
+        }
+    }
+
+    @Test
+    fun textStyleTopRatioTest() {
+        TextStyle().use { textStyle ->
+            assertEquals(-1f, textStyle.topRatio)
+            textStyle.topRatio = 0.42f
+            assertEquals(0.42f, textStyle.topRatio, 0.001f)
+        }
+    }
+
+    @Test
+    fun textStyleMetricsContainsMeaningfulValues() = runTest {
+        val jbMono = Typeface.makeFromResource(jbMonoPath)
+        TextStyle().use { textStyle ->
+            textStyle.typeface = jbMono
+            val metrics = textStyle.fontMetrics
+            assertFalse(metrics.ascent == 0f && metrics.descent == 0f && metrics.leading == 0f)
+        }
+    }
+
+    @Test
+    fun textStyleNotContainNaNValues() = runTest {
+        val jbMono = Typeface.makeFromResource(jbMonoPath)
+        TextStyle().use { textStyle ->
+            textStyle.typeface = jbMono
+            textStyle.height = 32f
+            assertTrue(!textStyle.fontMetrics.ascent.isNaN())
         }
     }
 

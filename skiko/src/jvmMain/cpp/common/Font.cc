@@ -73,7 +73,7 @@ extern "C" JNIEXPORT jboolean JNICALL Java_org_jetbrains_skia_FontKt__1nIsSubpix
     return instance->isSubpixel();
 }
 
-extern "C" JNIEXPORT jboolean JNICALL Java_org_jetbrains_skia_FontKt__1nAreMetricsLinear
+extern "C" JNIEXPORT jboolean JNICALL Java_org_jetbrains_skia_FontKt__1nIsLinearMetrics
   (JNIEnv* env, jclass jclass, jlong ptr) {
     SkFont* instance = reinterpret_cast<SkFont*>(static_cast<uintptr_t>(ptr));
     return instance->isLinearMetrics();
@@ -109,7 +109,7 @@ extern "C" JNIEXPORT void JNICALL Java_org_jetbrains_skia_FontKt__1nSetSubpixel
     instance->setSubpixel(value);
 }
 
-extern "C" JNIEXPORT void JNICALL Java_org_jetbrains_skia_FontKt__1nSetMetricsLinear
+extern "C" JNIEXPORT void JNICALL Java_org_jetbrains_skia_FontKt__1nSetLinearMetrics
   (JNIEnv* env, jclass jclass, jlong ptr, jboolean value) {
     SkFont* instance = reinterpret_cast<SkFont*>(static_cast<uintptr_t>(ptr));
     instance->setLinearMetrics(value);
@@ -155,13 +155,6 @@ extern "C" JNIEXPORT jlong JNICALL Java_org_jetbrains_skia_FontKt__1nGetTypeface
  (JNIEnv* env, jclass jclass, jlong ptr) {
     SkFont* instance = reinterpret_cast<SkFont*>(static_cast<uintptr_t>(ptr));
     SkTypeface* typeface = instance->refTypeface().release();
-    return reinterpret_cast<jlong>(typeface);
-}
-
-extern "C" JNIEXPORT jlong JNICALL Java_org_jetbrains_skia_FontKt__1nGetTypefaceOrDefault
- (JNIEnv* env, jclass jclass, jlong ptr) {
-    SkFont* instance = reinterpret_cast<SkFont*>(static_cast<uintptr_t>(ptr));
-    SkTypeface* typeface = instance->refTypefaceOrDefault().release();
     return reinterpret_cast<jlong>(typeface);
 }
 
@@ -382,7 +375,7 @@ extern "C" JNIEXPORT void JNICALL Java_org_jetbrains_skia_FontKt__1nGetMetrics
 }
 
 extern "C" JNIEXPORT jfloat JNICALL Java_org_jetbrains_skia_FontKt__1nGetSpacing
-  (JNIEnv* env, jclass jclass, jlong ptr, jshortArray glyphsArr) {
+  (JNIEnv* env, jclass jclass, jlong ptr) {
     SkFont* instance = reinterpret_cast<SkFont*>(static_cast<uintptr_t>(ptr));
     return instance->getSpacing();
 }
