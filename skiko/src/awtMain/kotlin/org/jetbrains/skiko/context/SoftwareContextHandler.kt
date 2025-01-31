@@ -1,24 +1,20 @@
 package org.jetbrains.skiko.context
 
-import org.jetbrains.skia.Bitmap
-import org.jetbrains.skia.Canvas
-import org.jetbrains.skia.ColorAlphaType
-import org.jetbrains.skia.ImageInfo
+import org.jetbrains.skia.*
+import org.jetbrains.skiko.Logger
+import org.jetbrains.skiko.OS
 import org.jetbrains.skiko.SkiaLayer
 import org.jetbrains.skiko.hostOs
-import org.jetbrains.skiko.OS
-import java.awt.Transparency
 import java.awt.Color
+import java.awt.Transparency
 import java.awt.color.ColorSpace
-import java.awt.image.BufferedImage
-import java.awt.image.ComponentColorModel
-import java.awt.image.DataBuffer
-import java.awt.image.DataBufferByte
-import java.awt.image.Raster
-import java.awt.image.WritableRaster
+import java.awt.image.*
 
 internal class SoftwareContextHandler(layer: SkiaLayer) : JvmContextHandler(layer) {
-    override val clearColor = if (layer.transparency && hostOs == OS.MacOS) 0 else -1
+    override fun isTransparentBackground(): Boolean {
+        // TODO: why Software rendering has another transparency logic from the begginning
+        return hostOs == OS.MacOS && layer.transparency
+    }
 
     val colorModel = ComponentColorModel(
         ColorSpace.getInstance(ColorSpace.CS_sRGB),
@@ -37,7 +33,7 @@ internal class SoftwareContextHandler(layer: SkiaLayer) : JvmContextHandler(laye
         // Raster does not need context
         if (!isInited) {
             if (System.getProperty("skiko.hardwareInfo.enabled") == "true") {
-                println(rendererInfo())
+                Logger.info { "Renderer info:\n ${rendererInfo()}" }
             }
             isInited = true
         }
@@ -55,7 +51,7 @@ internal class SoftwareContextHandler(layer: SkiaLayer) : JvmContextHandler(laye
             storage.allocPixelsFlags(ImageInfo.makeS32(w, h, ColorAlphaType.PREMUL), false)
         }
 
-        canvas = Canvas(storage)
+        canvas = Canvas(storage, SurfaceProps(pixelGeometry = layer.pixelGeometry))
     }
 
     override fun flush() {

@@ -1,5 +1,6 @@
 #include <iostream>
 #include "SkRuntimeEffect.h"
+#include "SkMatrix.h"
 #include "common.h"
 
 static void deleteRuntimeShaderBuilder(SkRuntimeShaderBuilder* builder) {
@@ -71,6 +72,12 @@ SKIKO_EXPORT void org_jetbrains_skia_RuntimeShaderBuilder__1nUniformFloat4
     runtimeShaderBuilder->uniform(skString(uniformName).c_str()) = float4 {uniformValue1, uniformValue2, uniformValue3, uniformValue4};
 }
 
+SKIKO_EXPORT void org_jetbrains_skia_RuntimeShaderBuilder__1nUniformFloatArray
+  (KNativePointer builderPtr, KInteropPointer uniformName, KFloat* uniformFloatArray, int32_t length) {
+    SkRuntimeShaderBuilder* runtimeShaderBuilder = reinterpret_cast<SkRuntimeShaderBuilder*>(builderPtr);
+    runtimeShaderBuilder->uniform(skString(uniformName).c_str()).set(uniformFloatArray, length);
+}
+
 SKIKO_EXPORT void org_jetbrains_skia_RuntimeShaderBuilder__1nUniformFloatMatrix22
   (KNativePointer builderPtr, KInteropPointer uniformName, KFloat* uniformMatrix22) {
     SkRuntimeShaderBuilder* runtimeShaderBuilder = reinterpret_cast<SkRuntimeShaderBuilder*>(builderPtr);
@@ -81,13 +88,15 @@ SKIKO_EXPORT void org_jetbrains_skia_RuntimeShaderBuilder__1nUniformFloatMatrix2
 SKIKO_EXPORT void org_jetbrains_skia_RuntimeShaderBuilder__1nUniformFloatMatrix33
   (KNativePointer builderPtr, KInteropPointer uniformName, KFloat* uniformMatrix33) {
     SkRuntimeShaderBuilder* runtimeShaderBuilder = reinterpret_cast<SkRuntimeShaderBuilder*>(builderPtr);
-    runtimeShaderBuilder->uniform(skString(uniformName).c_str()) = uniformMatrix33;
+    std::unique_ptr<SkMatrix> matrix33 = skMatrix(uniformMatrix33);
+    runtimeShaderBuilder->uniform(skString(uniformName).c_str()) = *matrix33;
 }
 
 SKIKO_EXPORT void org_jetbrains_skia_RuntimeShaderBuilder__1nUniformFloatMatrix44
   (KNativePointer builderPtr, KInteropPointer uniformName, KFloat* uniformMatrix44) {
     SkRuntimeShaderBuilder* runtimeShaderBuilder = reinterpret_cast<SkRuntimeShaderBuilder*>(builderPtr);
-    runtimeShaderBuilder->uniform(skString(uniformName).c_str()) = uniformMatrix44;
+    std::unique_ptr<SkM44> matrix44 = skM44(uniformMatrix44);
+    runtimeShaderBuilder->uniform(skString(uniformName).c_str()) = *matrix44;
 }
 
 SKIKO_EXPORT void org_jetbrains_skia_RuntimeShaderBuilder__1nChildShader
@@ -102,4 +111,12 @@ SKIKO_EXPORT void org_jetbrains_skia_RuntimeShaderBuilder__1nChildColorFilter
     SkRuntimeShaderBuilder* runtimeShaderBuilder = reinterpret_cast<SkRuntimeShaderBuilder*>(builderPtr);
     sk_sp<SkColorFilter> colorFilter = sk_ref_sp<SkColorFilter>(reinterpret_cast<SkColorFilter*>(childColorFilterPtr));
     runtimeShaderBuilder->child(skString(childName).c_str()) = colorFilter;
+}
+
+SKIKO_EXPORT KNativePointer org_jetbrains_skia_RuntimeShaderBuilder__1nMakeShader
+  (KNativePointer builderPtr, KFloat* localMatrixArr) {
+    SkRuntimeShaderBuilder* runtimeShaderBuilder = reinterpret_cast<SkRuntimeShaderBuilder*>(builderPtr);
+    std::unique_ptr<SkMatrix> localMatrix = skMatrix(localMatrixArr);
+    sk_sp<SkShader> shader = runtimeShaderBuilder->makeShader(localMatrix.get());
+    return reinterpret_cast<KNativePointer>(shader.release());
 }

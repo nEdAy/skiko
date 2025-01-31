@@ -110,8 +110,7 @@ class Image internal constructor(ptr: NativePointer) : RefCnt(ptr), IHasImageInf
         fun makeFromBitmap(bitmap: Bitmap): Image {
             return try {
                 Stats.onNativeCall()
-                val ptr =
-                    _nMakeFromBitmap(getPtr(bitmap))
+                val ptr = _nMakeFromBitmap(getPtr(bitmap))
                 if (ptr == NullPointer) throw RuntimeException("Failed to Image::makeFromBitmap $bitmap")
                 Image(ptr)
             } finally {
@@ -122,8 +121,7 @@ class Image internal constructor(ptr: NativePointer) : RefCnt(ptr), IHasImageInf
         fun makeFromPixmap(pixmap: Pixmap): Image {
             return try {
                 Stats.onNativeCall()
-                val ptr =
-                    _nMakeFromPixmap(getPtr(pixmap))
+                val ptr = _nMakeFromPixmap(getPtr(pixmap))
                 if (ptr == NullPointer) throw RuntimeException("Failed to Image::makeFromRaster $pixmap")
                 Image(ptr)
             } finally {
@@ -383,15 +381,19 @@ class Image internal constructor(ptr: NativePointer) : RefCnt(ptr), IHasImageInf
 }
 
 @ExternalSymbolName("org_jetbrains_skia_Image__1nGetImageInfo")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Image__1nGetImageInfo")
 private external fun Image_nGetImageInfo(ptr: NativePointer, imageInfo: InteropPointer, colorSpacePtrs: InteropPointer)
 
 @ExternalSymbolName("org_jetbrains_skia_Image__1nMakeShader")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Image__1nMakeShader")
 private external fun Image_nMakeShader(ptr: NativePointer, tmx: Int, tmy: Int, samplingModeVal1: Int, samplingModeVal2: Int, localMatrix: InteropPointer): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_Image__1nPeekPixels")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Image__1nPeekPixels")
 private external fun Image_nPeekPixels(ptr: NativePointer): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_Image__1nMakeRaster")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Image__1nMakeRaster")
 private external fun _nMakeRaster(
     width: Int,
     height: Int,
@@ -404,6 +406,7 @@ private external fun _nMakeRaster(
 
 
 @ExternalSymbolName("org_jetbrains_skia_Image__1nMakeRasterData")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Image__1nMakeRasterData")
 private external fun _nMakeRasterData(
     width: Int,
     height: Int,
@@ -416,24 +419,31 @@ private external fun _nMakeRasterData(
 
 
 @ExternalSymbolName("org_jetbrains_skia_Image__1nMakeFromBitmap")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Image__1nMakeFromBitmap")
 private external fun _nMakeFromBitmap(bitmapPtr: NativePointer): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_Image__1nMakeFromPixmap")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Image__1nMakeFromPixmap")
 private external fun _nMakeFromPixmap(pixmapPtr: NativePointer): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_Image__1nMakeFromEncoded")
-private external fun _nMakeFromEncoded(bytes: InteropPointer, encodedLength: Int): NativePointer
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Image__1nMakeFromEncoded")
+internal external fun _nMakeFromEncoded(bytes: InteropPointer, encodedLength: Int): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_Image__1nEncodeToData")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Image__1nEncodeToData")
 private external fun _nEncodeToData(ptr: NativePointer, format: Int, quality: Int): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_Image__1nPeekPixelsToPixmap")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Image__1nPeekPixelsToPixmap")
 private external fun _nPeekPixelsToPixmap(ptr: NativePointer, pixmapPtr: NativePointer): Boolean
 
 @ExternalSymbolName("org_jetbrains_skia_Image__1nScalePixels")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Image__1nScalePixels")
 private external fun _nScalePixels(ptr: NativePointer, pixmapPtr: NativePointer, samplingOptionsVal1: Int, samplingOptionsVal2: Int, cache: Boolean): Boolean
 
 @ExternalSymbolName("org_jetbrains_skia_Image__1nReadPixelsBitmap")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Image__1nReadPixelsBitmap")
 private external fun _nReadPixelsBitmap(
     ptr: NativePointer,
     contextPtr: NativePointer,
@@ -445,4 +455,5 @@ private external fun _nReadPixelsBitmap(
 
 
 @ExternalSymbolName("org_jetbrains_skia_Image__1nReadPixelsPixmap")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Image__1nReadPixelsPixmap")
 private external fun _nReadPixelsPixmap(ptr: NativePointer, pixmapPtr: NativePointer, srcX: Int, srcY: Int, cache: Boolean): Boolean

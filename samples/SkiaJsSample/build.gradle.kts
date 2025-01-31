@@ -1,11 +1,11 @@
 plugins {
-    kotlin("multiplatform") version "1.6.10"
+    kotlin("multiplatform")
 }
 
 repositories {
-    mavenLocal()
     mavenCentral()
     maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
+    mavenLocal()
 }
 
 var version = "0.0.0-SNAPSHOT"
@@ -17,13 +17,26 @@ val resourcesDir = "$buildDir/resources/"
 
 val skikoWasm by configurations.creating
 
+val isCompositeBuild = extra.properties.getOrDefault("skiko.composite.build", "") == "1"
+
 dependencies {
-    skikoWasm("org.jetbrains.skiko:skiko-js-wasm-runtime:$version")
+    if (isCompositeBuild) {
+        val filePath = gradle.includedBuild("skiko").projectDir
+            .resolve("./build/libs/skiko-wasm-$version.jar")
+        skikoWasm(files(filePath))
+    } else {
+        skikoWasm("org.jetbrains.skiko:skiko-js-wasm-runtime:$version")
+    }
 }
 
 val unzipTask = tasks.register("unzipWasm", Copy::class) {
     destinationDir = file(resourcesDir)
     from(skikoWasm.map { zipTree(it) })
+
+    if (isCompositeBuild) {
+        val skikoWasmJarTask = gradle.includedBuild("skiko").task(":skikoWasmJar")
+        dependsOn(skikoWasmJarTask)
+    }
 }
 
 tasks.withType<org.jetbrains.kotlin.gradle.dsl.KotlinJsCompile>().configureEach {
@@ -33,7 +46,22 @@ tasks.withType<org.jetbrains.kotlin.gradle.dsl.KotlinJsCompile>().configureEach 
 kotlin {
 
     js(IR) {
-        browser()
+        moduleName = "jsApp"
+        browser {
+            commonWebpackConfig {
+                outputFileName = "jsApp.js"
+            }
+        }
+        binaries.executable()
+    }
+
+    wasmJs() {
+        moduleName = "wasmApp"
+        browser {
+            commonWebpackConfig {
+                outputFileName = "wasmApp.js"
+            }
+        }
         binaries.executable()
     }
 
@@ -44,10 +72,19 @@ kotlin {
             }
         }
 
-        val jsMain by getting {
+        val webMain by creating {
             dependsOn(commonMain)
             resources.setSrcDirs(resources.srcDirs)
             resources.srcDirs(unzipTask.map { it.destinationDir })
+        }
+
+        val jsMain by getting {
+            dependsOn(webMain)
+        }
+
+
+        val wasmJsMain by getting {
+            dependsOn(webMain)
         }
     }
 }
