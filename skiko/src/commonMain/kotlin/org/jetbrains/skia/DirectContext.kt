@@ -2,12 +2,17 @@ package org.jetbrains.skia
 
 import org.jetbrains.skia.impl.*
 import org.jetbrains.skia.impl.Library.Companion.staticLoad
+import org.jetbrains.skiko.RenderException
+import org.jetbrains.skiko.loadOpenGLLibrary
 
 class DirectContext internal constructor(ptr: NativePointer) : RefCnt(ptr) {
     companion object {
         fun makeGL(): DirectContext {
             Stats.onNativeCall()
-            return DirectContext(_nMakeGL())
+            loadOpenGLLibrary()
+            val ptr = _nMakeGL()
+            if (ptr == NullPointer) throw RenderException("Can't create OpenGL DirectContext")
+            return DirectContext(ptr)
         }
 
         fun makeMetal(devicePtr: NativePointer, queuePtr: NativePointer): DirectContext {
@@ -40,7 +45,13 @@ class DirectContext internal constructor(ptr: NativePointer) : RefCnt(ptr) {
 
     fun flush(): DirectContext {
         Stats.onNativeCall()
-        DirectContext_nFlush(_ptr)
+        DirectContext_nFlushDefault(_ptr)
+        return this
+    }
+
+    fun flush(surface: Surface): DirectContext {
+        Stats.onNativeCall()
+        DirectContext_nFlush(_ptr, surface._ptr)
         return this
     }
 
@@ -79,6 +90,15 @@ class DirectContext internal constructor(ptr: NativePointer) : RefCnt(ptr) {
         _nSubmit(_ptr, syncCpu)
     }
 
+    fun flushAndSubmit(surface: Surface, syncCpu: Boolean = false) {
+        try {
+            Stats.onNativeCall()
+            _nFlushAndSubmit(_ptr, surface._ptr, syncCpu)
+        } finally {
+            reachabilityBarrier(this)
+        }
+    }
+
     /**
      *
      * Abandons all GPU resources and assumes the underlying backend 3D API context is no longer
@@ -114,22 +134,37 @@ fun <R> DirectContext.useContext(block: (ctx: DirectContext) -> R): R = use {
 }
 
 @ExternalSymbolName("org_jetbrains_skia_DirectContext__1nFlush")
-private external fun DirectContext_nFlush(ptr: NativePointer)
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_DirectContext__1nFlush")
+private external fun DirectContext_nFlush(ptr: NativePointer, surfacePtr: NativePointer)
+
+@ExternalSymbolName("org_jetbrains_skia_DirectContext__1nFlushDefault")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_DirectContext__1nFlushDefault")
+private external fun DirectContext_nFlushDefault(ptr: NativePointer)
 
 @ExternalSymbolName("org_jetbrains_skia_DirectContext__1nMakeGL")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_DirectContext__1nMakeGL")
 private external fun _nMakeGL(): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_DirectContext__1nMakeMetal")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_DirectContext__1nMakeMetal")
 private external fun _nMakeMetal(devicePtr: NativePointer, queuePtr: NativePointer): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_DirectContext__1nMakeDirect3D")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_DirectContext__1nMakeDirect3D")
 private external fun _nMakeDirect3D(adapterPtr: NativePointer, devicePtr: NativePointer, queuePtr: NativePointer): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_DirectContext__1nSubmit")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_DirectContext__1nSubmit")
 private external fun _nSubmit(ptr: NativePointer, syncCpu: Boolean)
 
+@ExternalSymbolName("org_jetbrains_skia_DirectContext__1nFlushAndSubmit")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_DirectContext__1nFlushAndSubmit")
+private external fun _nFlushAndSubmit(ptr: NativePointer, surfacePtr: NativePointer, syncCpu: Boolean)
+
 @ExternalSymbolName("org_jetbrains_skia_DirectContext__1nReset")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_DirectContext__1nReset")
 private external fun _nReset(ptr: NativePointer, flags: Int)
 
 @ExternalSymbolName("org_jetbrains_skia_DirectContext__1nAbandon")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_DirectContext__1nAbandon")
 private external fun _nAbandon(ptr: NativePointer, flags: Int)

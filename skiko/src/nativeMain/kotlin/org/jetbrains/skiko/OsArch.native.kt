@@ -1,15 +1,20 @@
 package org.jetbrains.skiko
 
+import kotlin.experimental.ExperimentalNativeApi
+
+@OptIn(ExperimentalNativeApi::class)
 actual val hostOs: OS by lazy {
     when (Platform.osFamily) {
         OsFamily.MACOSX -> OS.MacOS
         OsFamily.LINUX -> OS.Linux
         OsFamily.WINDOWS -> OS.Windows
         OsFamily.IOS -> OS.Ios
+        OsFamily.TVOS -> OS.Tvos
         else -> throw Error("Unsupported OS ${Platform.osFamily}")
     }
 }
 
+@OptIn(ExperimentalNativeApi::class)
 actual val hostArch: Arch by lazy {
     when (Platform.cpuArchitecture) {
         CpuArchitecture.X64 -> Arch.X64

@@ -27,6 +27,7 @@ expect open class SkiaLayer {
      * If rendering is full screen.
      */
     var fullscreen: Boolean
+
     /**
      * If transparency is enabled.
      */
@@ -40,16 +41,16 @@ expect open class SkiaLayer {
     /**
      * Current view used for rendering.
      */
-    var skikoView: SkikoView?
+    var renderDelegate: SkikoRenderDelegate?
 
     /**
-     * Attach this SkikoView to platform container.
+     * Attach this [SkikoRenderDelegate] to platform container.
      * Actual type of attach container is platform-specific.
      */
     fun attachTo(container: Any)
 
     /**
-     * Detach this SkikoView from platform container.
+     * Detach this [SkikoRenderDelegate] from platform container.
      */
     fun detach()
 

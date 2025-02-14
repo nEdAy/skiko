@@ -8,8 +8,10 @@ import org.jetbrains.skia.impl.NativePointer
 import org.jetbrains.skia.makeFromFileName
 import java.nio.ByteBuffer
 
-actual fun runTest(block: suspend () -> Unit) {
-    runBlocking { block() }
+actual typealias TestReturnType = Unit
+
+actual fun runTest(block: suspend () -> Unit): TestReturnType {
+    return runBlocking { block() }
 }
 
 internal actual fun InteropScope.allocateBytesForPixels(size: Int): NativePointer {
@@ -18,8 +20,15 @@ internal actual fun InteropScope.allocateBytesForPixels(size: Int): NativePointe
 
 actual annotation class SkipJsTarget
 
+actual annotation class SkipWasmTarget
+
 actual typealias SkipJvmTarget = org.junit.Ignore
 
 actual annotation class SkipNativeTarget
 
 actual fun makeFromFileName(path: String?): Data = Data.Companion.makeFromFileName(path)
+
+actual val isDebugModeOnJvm: Boolean
+    get() {
+        return System.getProperty("skiko.test.debug") == "true"
+    }

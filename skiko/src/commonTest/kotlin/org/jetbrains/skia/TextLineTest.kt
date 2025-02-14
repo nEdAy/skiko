@@ -5,13 +5,15 @@ import org.jetbrains.skia.ManagedString
 import org.jetbrains.skia.TextLine
 import org.jetbrains.skia.Typeface
 import org.jetbrains.skia.impl.use
+import org.jetbrains.skia.shaper.ShapingOptions
+import org.jetbrains.skia.tests.assertCloseEnough
+import org.jetbrains.skia.tests.makeFromResource
+import org.jetbrains.skiko.tests.isDebugModeOnJvm
+import org.jetbrains.skiko.tests.runTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
-import org.jetbrains.skia.tests.makeFromResource
-import org.jetbrains.skia.tests.assertCloseEnough
-import org.jetbrains.skiko.tests.runTest
 
 class TextLineTest {
     private val inter36: suspend () -> Font = suspend {
@@ -226,5 +228,15 @@ class TextLineTest {
         assertCloseEnough(expected = 26.0f, actual = textLine.getCoordAtOffset(1), epsilon = eps)
         assertCloseEnough(expected = 48.0f, actual = textLine.getCoordAtOffset(2), epsilon = eps)
         assertCloseEnough(expected = 69.0f, actual = textLine.getCoordAtOffset(3), epsilon = eps)
+    }
+
+    @Test
+    fun dontCrashOnStringsWithoutGlyphs() = runTest {
+        if (isDebugModeOnJvm)
+            throw Error("This test is usually crashes in DEBUG mode")
+
+        val failedOn = "\uFE0F" // Variation Selector-16
+        val textLine = TextLine.make(failedOn, jbMono36(), ShapingOptions.DEFAULT)
+        assertCloseEnough(expected = 0f, actual = textLine.width)
     }
 }

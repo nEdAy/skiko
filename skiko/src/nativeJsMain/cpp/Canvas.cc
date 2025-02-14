@@ -269,6 +269,34 @@ SKIKO_EXPORT void org_jetbrains_skia_Canvas__1nConcat44
 }
 
 
+SKIKO_EXPORT void org_jetbrains_skia_Canvas__1nTranslate
+  (KNativePointer canvasPtr, KFloat dx, KFloat dy) {
+    SkCanvas* canvas = reinterpret_cast<SkCanvas*>((canvasPtr));
+    canvas->translate(dx, dy);
+}
+
+
+SKIKO_EXPORT void org_jetbrains_skia_Canvas__1nScale
+  (KNativePointer canvasPtr, KFloat sx, KFloat sy) {
+    SkCanvas* canvas = reinterpret_cast<SkCanvas*>((canvasPtr));
+    canvas->scale(sx, sy);
+}
+
+
+SKIKO_EXPORT void org_jetbrains_skia_Canvas__1nRotate
+  (KNativePointer canvasPtr, KFloat deg, KFloat x, KFloat y) {
+    SkCanvas* canvas = reinterpret_cast<SkCanvas*>((canvasPtr));
+    canvas->rotate(deg, x, y);
+}
+
+
+SKIKO_EXPORT void org_jetbrains_skia_Canvas__1nSkew
+  (KNativePointer canvasPtr, KFloat sx, KFloat sy) {
+    SkCanvas* canvas = reinterpret_cast<SkCanvas*>((canvasPtr));
+    canvas->skew(sx, sy);
+}
+
+
 SKIKO_EXPORT KInt org_jetbrains_skia_Canvas__1nReadPixels
   (KNativePointer ptr, KNativePointer bitmapPtr, KInt srcX, KInt srcY) {
     SkCanvas* canvas = reinterpret_cast<SkCanvas*>((ptr));
@@ -300,6 +328,27 @@ SKIKO_EXPORT KInt org_jetbrains_skia_Canvas__1nSaveLayerRect
     SkRect bounds {left, top, right, bottom};
     SkPaint* paint = reinterpret_cast<SkPaint*>((paintPtr));
     return canvas->saveLayer(&bounds, paint);
+}
+
+SKIKO_EXPORT KInt org_jetbrains_skia_Canvas__1nSaveLayerSaveLayerRec
+  (KNativePointer ptr, KNativePointer paintPtr, KNativePointer backdropImageFilterPtr, KNativePointer colorSpacePtr, KInt saveLayerFlags) {
+    SkCanvas* canvas = reinterpret_cast<SkCanvas*>((ptr));
+    SkPaint* paint = reinterpret_cast<SkPaint*>((paintPtr));
+    SkImageFilter* backdrop = reinterpret_cast<SkImageFilter*>(backdropImageFilterPtr);
+    SkColorSpace* colorSpace = reinterpret_cast<SkColorSpace*>(colorSpacePtr);
+
+    return canvas->saveLayer(SkCanvas::SaveLayerRec(nullptr, paint, backdrop, colorSpace, saveLayerFlags));
+}
+
+SKIKO_EXPORT KInt org_jetbrains_skia_Canvas__1nSaveLayerSaveLayerRecRect
+  (KNativePointer ptr, KFloat left, KFloat top, KFloat right, KFloat bottom, KNativePointer paintPtr, KNativePointer backdropImageFilterPtr, KNativePointer colorSpacePtr, KInt saveLayerFlags) {
+    SkCanvas* canvas = reinterpret_cast<SkCanvas*>((ptr));
+    SkRect bounds {left, top, right, bottom};
+    SkPaint* paint = reinterpret_cast<SkPaint*>((paintPtr));
+    SkImageFilter* backdrop = reinterpret_cast<SkImageFilter*>(backdropImageFilterPtr);
+    SkColorSpace* colorSpace = reinterpret_cast<SkColorSpace*>(colorSpacePtr);
+
+    return canvas->saveLayer(SkCanvas::SaveLayerRec(&bounds, paint, backdrop, colorSpace, saveLayerFlags));
 }
 
 SKIKO_EXPORT KInt org_jetbrains_skia_Canvas__1nGetSaveCount(KNativePointer ptr) {

@@ -11,13 +11,15 @@ import org.gradle.work.InputChanges
 import org.gradle.workers.WorkerExecutionException
 
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.Path
 import java.util.*
 import java.util.concurrent.Callable
 import kotlin.collections.HashSet
 
 abstract class CompileSkikoCppTask() : AbstractSkikoNativeToolTask() {
     @get:Internal
-    open val srcExtensions: Array<String> = arrayOf("cc")
+    open val srcExtensions: Array<String> = arrayOf("cc", "cpp")
 
     @get:Internal
     open val headerExtensions: Array<String> = arrayOf("h", "hh")
@@ -145,6 +147,14 @@ abstract class CompileSkikoCppTask() : AbstractSkikoNativeToolTask() {
                 // Replace slash for Windows paths
                 arg("-o", outputFile.absolutePath.replace("\\", "/"))
                 arg(value = sourceFile.absolutePath.replace("\\", "/"))
+                if (compiler.get().startsWith("clang")) {
+                    // We use Clang-CL on Windows which doesn't directly support the -MJ flag.
+                    // We have to use the /clang:-MJ"path" form instead.
+                    when {
+                        buildTargetOS.get().isWindows -> rawArg("/clang:-MJ\"" + outputFile.absolutePath + ".json\"")
+                        else -> arg("-MJ", outputFile.absolutePath + ".json")
+                    }
+                }
             }
 
             val argFile = run {
@@ -176,6 +186,18 @@ abstract class CompileSkikoCppTask() : AbstractSkikoNativeToolTask() {
         } finally {
             for (work in submittedWorks) {
                 RunExternalProcessWork.workResults.remove(work)
+            }
+
+            // Create compile_commands.json to be able to open the project in Fleet. It is CLang convention (https://clang.llvm.org/docs/JSONCompilationDatabase.html#build-system-integration)
+            if (compiler.get().startsWith("clang")) {
+                val compileCommands = buildString {
+                    appendLine("[")
+                    append(sourceOutputPairs.joinToString(",\n") { (_, outputFile) ->
+                        Files.readString(Path.of(outputFile.absolutePath + ".json")).trim().removeSuffix(",")
+                    })
+                    appendLine("]")
+                }
+                Files.writeString(outDir.toPath().resolve("compile_commands.json"), compileCommands)
             }
         }
     }

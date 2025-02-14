@@ -6,8 +6,10 @@ import org.jetbrains.skia.impl.InteropScope
 import org.jetbrains.skia.impl.NativePointer
 import org.jetbrains.skia.makeFromFileName
 
-actual fun runTest(block: suspend () -> Unit) {
-    runBlocking { block() }
+actual typealias TestReturnType = Unit
+
+actual fun runTest(block: suspend () -> Unit): TestReturnType {
+    return runBlocking { block() }
 }
 
 internal actual fun InteropScope.allocateBytesForPixels(size: Int): NativePointer {
@@ -16,8 +18,12 @@ internal actual fun InteropScope.allocateBytesForPixels(size: Int): NativePointe
 
 actual annotation class SkipJsTarget
 
+actual annotation class SkipWasmTarget
+
 actual annotation class SkipJvmTarget
 
 actual typealias SkipNativeTarget = kotlin.test.Ignore
 
 actual fun makeFromFileName(path: String?): Data = Data.Companion.makeFromFileName(path)
+
+actual val isDebugModeOnJvm: Boolean = false
