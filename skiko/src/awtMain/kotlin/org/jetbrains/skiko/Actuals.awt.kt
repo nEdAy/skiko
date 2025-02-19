@@ -8,13 +8,15 @@ import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
 import java.awt.datatransfer.UnsupportedFlavorException
 import java.io.IOException
+import java.net.MalformedURLException
 import java.net.URI
+import java.net.URL
 import javax.swing.UIManager
 
 actual fun setSystemLookAndFeel() = UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName())
 
-internal actual fun makeDefaultRenderFactory(): RenderFactory {
-    return object : RenderFactory {
+internal actual fun makeDefaultRenderFactory(): RenderFactory =
+    object : RenderFactory {
         override fun createRedrawer(
             layer: SkiaLayer,
             renderApi: GraphicsApi,
@@ -36,13 +38,23 @@ internal actual fun makeDefaultRenderFactory(): RenderFactory {
                 GraphicsApi.SOFTWARE_FAST -> LinuxSoftwareRedrawer(layer, analytics, properties)
                 else -> LinuxOpenGLRedrawer(layer, analytics, properties)
             }
-            OS.Android, OS.JS, OS.Ios -> throw UnsupportedOperationException("The awt target doesn't support $hostOs")
+            OS.Android, OS.JS, OS.Ios, OS.Tvos, OS.Unknown -> throw UnsupportedOperationException("The awt target doesn't support $hostOs")
         }
     }
-}
 
 internal actual fun URIHandler_openUri(uri: String) {
-    Desktop.getDesktop().browse(URI(uri))
+    val desktop = Desktop.getDesktop()
+    if (desktop.isSupported(Desktop.Action.BROWSE)) {
+        desktop.browse(URI(uri))
+    } else when (hostOs) {
+        OS.Linux -> {
+            URI(uri) // Validate URI for exception behavior consistent with the Desktop.browse() case (throwing URISyntaxException)
+            Runtime.getRuntime().exec(arrayOf("xdg-open", URL(uri).toString()))
+        }
+        OS.Android, OS.Windows, OS.MacOS, OS.Ios, OS.Tvos, OS.JS, OS.Unknown -> {
+            throw UnsupportedOperationException("AWT does not support the BROWSE action on this platform")
+        }
+    }
 }
 
 private val systemClipboard by lazy {
@@ -56,6 +68,7 @@ private val systemClipboard by lazy {
 internal actual fun ClipboardManager_setText(text: String) {
     systemClipboard?.setContents(StringSelection(text), null)
 }
+
 internal actual fun ClipboardManager_getText(): String? {
     return try {
         systemClipboard?.getData(DataFlavor.stringFlavor) as String?
@@ -67,6 +80,8 @@ internal actual fun ClipboardManager_getText(): String? {
         null
     }
 }
+
+internal actual fun ClipboardManager_hasText(): Boolean = !ClipboardManager_getText().isNullOrEmpty()
 
 actual typealias Cursor = java.awt.Cursor
 

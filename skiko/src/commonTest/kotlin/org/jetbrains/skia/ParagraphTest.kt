@@ -5,9 +5,10 @@ import org.jetbrains.skia.paragraph.*
 import org.jetbrains.skia.tests.assertCloseEnough
 import org.jetbrains.skia.tests.assertContentCloseEnough
 import org.jetbrains.skia.tests.makeFromResource
-import org.jetbrains.skiko.tests.SkipJsTarget
-import org.jetbrains.skiko.tests.SkipNativeTarget
-import org.jetbrains.skiko.tests.runTest
+import org.jetbrains.skiko.tests.*
+import kotlin.math.ceil
+import kotlin.math.floor
+import kotlin.math.truncate
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -17,6 +18,7 @@ class ParagraphTest {
     private val fontCollection = suspend {
         FontCollection().setDefaultFontManager(TypefaceFontProvider().apply {
             registerTypeface(Typeface.makeFromResource("./fonts/Inter-Hinted-Regular.ttf"), "Inter")
+            registerTypeface(Typeface.makeFromResource("./fonts/JetBrainsMono_2_304/JetBrainsMono-Regular.ttf"), "JetBrains Mono")
         })
     }
     private val style = ParagraphStyle().apply {
@@ -30,34 +32,87 @@ class ParagraphTest {
 
     @Test
     @SkipJsTarget
+    @SkipWasmTarget
     @SkipNativeTarget
     fun findTypefaces() = runTest {
         fontCollection().findTypefaces(emptyArray(), FontStyle.NORMAL)
     }
 
-    private suspend fun singleLineMetrics(text: String): LineMetrics {
+    private suspend fun layoutParagraph(text: String): Paragraph {
         return ParagraphBuilder(style, fontCollection()).use {
             it.addText(text)
             it.build()
-        }.layout(Float.POSITIVE_INFINITY).lineMetrics.first()
+        }.layout(Float.POSITIVE_INFINITY)
+    }
+
+    private suspend fun singleLineMetrics(text: String): LineMetrics {
+        return layoutParagraph(text).lineMetrics.first()
     }
 
     @Test
-    @SkipJsTarget
-    @SkipNativeTarget
     fun layoutParagraph() = runTest {
-        singleLineMetrics("aa").let { lineMetrics -> // latin
-            assertEquals(0, lineMetrics.startIndex)
-            assertEquals(2, lineMetrics.endIndex)
-            assertEquals(2, lineMetrics.endIncludingNewline)
-            assertEquals(2, lineMetrics.endExcludingWhitespaces)
-        }
-        singleLineMetrics("яя").let { lineMetrics -> // cyrillic
-            assertEquals(0, lineMetrics.startIndex)
-            assertEquals(2, lineMetrics.endIndex)
-            assertEquals(2, lineMetrics.endIncludingNewline)
-            assertEquals(2, lineMetrics.endExcludingWhitespaces)
-        }
+        val lineMetricsEpsilon = 0.001f
+
+        assertCloseEnough(
+            actual = singleLineMetrics("aa"),
+            expected = LineMetrics(
+                startIndex = 0,
+                endIndex = 2,
+                endExcludingWhitespaces = 2,
+                endIncludingNewline = 2,
+                isHardBreak = true,
+                ascent = 13.5625,
+                descent = 3.380584716796875,
+                unscaledAscent = 13.5625,
+                height = 17.0,
+                width = 15.789764404296875,
+                left = 0.0,
+                baseline = 13.619415283203125,
+                lineNumber = 0
+            ), epsilon = lineMetricsEpsilon
+        )
+
+
+        assertCloseEnough(
+            actual = singleLineMetrics("яя"),
+            expected = LineMetrics(
+                startIndex = 0,
+                endIndex = 2,
+                endExcludingWhitespaces = 2,
+                endIncludingNewline = 2,
+                isHardBreak = true,
+                ascent = 13.5625,
+                descent = 3.380584716796875,
+                unscaledAscent = 13.5625,
+                height = 17.0,
+                width = 15.710235595703125,
+                left = 0.0,
+                baseline = 13.619415283203125,
+                lineNumber = 0
+            ), epsilon = lineMetricsEpsilon
+        )
+    }
+
+    @Test
+    fun invalidUnicode() = runTest {
+        val invalidUnicodeText = "🦊qwerty".substring(1)
+
+        val paragraph = layoutParagraph(invalidUnicodeText)
+
+        // There is an intermediate conversation to UTF-8, so U+FFFD is expected instead of the invalid one.
+        assertEquals("�qwerty", paragraph.getText())
+        assertEquals(1, paragraph.lineNumber)
+    }
+
+    @Test
+    fun emptyString() = runTest {
+        // https://github.com/JetBrains/skiko/issues/963
+        val paragraph = ParagraphBuilder(style, fontCollection())
+            .pushStyle(TextStyle())
+            .addText("")
+            .popStyle()
+            .build()
+        assertEquals("", paragraph.getText())
     }
 
     @Test
@@ -89,9 +144,9 @@ class ParagraphTest {
         ), paragraph.getRectsForRange(8, 21, RectHeightMode.TIGHT, RectWidthMode.TIGHT),0.01f)
 
         paragraph = paragraph
-            .updateFontSize(8, 21, 48.0f)
-            .updateForegroundPaint(8, 21, Paint().apply { color = Color.RED })
-            .updateBackgroundPaint(8, 21, Paint().apply { color = Color.BLACK })
+            .updateFontSize(0, text.length, 48.0f)
+            .updateForegroundPaint(0, text.length, Paint().apply { color = Color.RED })
+            .updateBackgroundPaint(0, text.length, Paint().apply { color = Color.BLACK })
             .updateAlignment(Alignment.RIGHT)
             .markDirty()
 
@@ -123,5 +178,36 @@ class ParagraphTest {
                 rect.rect.bottom
             }
         }
+    }
+
+    @Test
+    fun layout_paragraph_with_its_maxIntrinsicWidth_shouldnt_lead_to_wraps() = runTest {
+        suspend fun testWraps(isApplyRoundingHackEnabled: Boolean, unexpectedWrapsPresent: Boolean) {
+            val paragraphStyle = ParagraphStyle().apply {
+                this.isApplyRoundingHackEnabled = isApplyRoundingHackEnabled
+                textStyle = TextStyle().apply {
+                    fontFamilies = arrayOf("JetBrains Mono")
+                    fontSize = 13.0f * 2f
+                }
+            }
+            val paragraph = ParagraphBuilder(paragraphStyle, fontCollection()).use {
+                it.addText("x".repeat(104))
+                it.addText(" ")
+                it.addText("y".repeat(100))
+                it.build()
+            }.layout(Float.POSITIVE_INFINITY)
+            assertEquals(1, paragraph.lineNumber, "Layout in one line with Inf width")
+
+            val maxIntrinsicWidth = paragraph.maxIntrinsicWidth
+            val expectedLines = if (unexpectedWrapsPresent) 2 else 1
+
+            paragraph.layout(paragraph.maxIntrinsicWidth)
+            assertEquals(expectedLines, paragraph.lineNumber, "Layout with maxIntrinsicWidth " +
+                                                              "maxIntrinsicWidth: $maxIntrinsicWidth " +
+                                                              "unexpectedWrapsPresent: $unexpectedWrapsPresent " +
+                                                              "isApplyRoundingHackEnabled: $isApplyRoundingHackEnabled")
+        }
+        testWraps(isApplyRoundingHackEnabled = false, unexpectedWrapsPresent = false)
+        testWraps(isApplyRoundingHackEnabled = true, unexpectedWrapsPresent = true)
     }
 }

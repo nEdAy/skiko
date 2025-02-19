@@ -3,6 +3,20 @@ package org.jetbrains.skia
 import org.jetbrains.skia.impl.*
 import org.jetbrains.skia.impl.Library.Companion.staticLoad
 
+private fun makePath(
+    path: Path?,
+    forceClosed: Boolean,
+    resScale: Float
+): NativePointer {
+    Stats.onNativeCall()
+    return try {
+        _nMakePath(getPtr(path), forceClosed, resScale)
+    } finally {
+        Stats.onNativeCall()
+        reachabilityBarrier(path)
+    }
+}
+
 class PathMeasure internal constructor(ptr: NativePointer) : Managed(ptr, _FinalizerHolder.PTR) {
     companion object {
         init {
@@ -10,9 +24,7 @@ class PathMeasure internal constructor(ptr: NativePointer) : Managed(ptr, _Final
         }
     }
 
-    constructor() : this(PathMeasure_nMake()) {
-        Stats.onNativeCall()
-    }
+    constructor() : this(PathMeasure_nMake())
     /**
      *
      * Initialize the pathmeasure with the specified path. The parts of the path that are needed
@@ -34,10 +46,7 @@ class PathMeasure internal constructor(ptr: NativePointer) : Managed(ptr, _Final
         path: Path?,
         forceClosed: Boolean = false,
         resScale: Float = 1f
-    ) : this(_nMakePath(getPtr(path), forceClosed, resScale)) {
-        Stats.onNativeCall()
-        reachabilityBarrier(path)
-    }
+    ) : this(makePath(path, forceClosed, resScale))
 
     /**
      * Reset the pathmeasure with the specified path. The parts of the path that are needed
@@ -49,6 +58,7 @@ class PathMeasure internal constructor(ptr: NativePointer) : Managed(ptr, _Final
             _nSetPath(_ptr, getPtr(path), forceClosed)
             this
         } finally {
+            reachabilityBarrier(this)
             reachabilityBarrier(path)
         }
     }
@@ -205,30 +215,39 @@ class PathMeasure internal constructor(ptr: NativePointer) : Managed(ptr, _Final
 }
 
 @ExternalSymbolName("org_jetbrains_skia_PathMeasure__1nGetFinalizer")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_PathMeasure__1nGetFinalizer")
 private external fun PathMeasure_nGetFinalizer(): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_PathMeasure__1nMake")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_PathMeasure__1nMake")
 private external fun PathMeasure_nMake(): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_PathMeasure__1nMakePath")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_PathMeasure__1nMakePath")
 private external fun _nMakePath(pathPtr: NativePointer, forceClosed: Boolean, resScale: Float): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_PathMeasure__1nSetPath")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_PathMeasure__1nSetPath")
 private external fun _nSetPath(ptr: NativePointer, pathPtr: NativePointer, forceClosed: Boolean)
 
 @ExternalSymbolName("org_jetbrains_skia_PathMeasure__1nGetLength")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_PathMeasure__1nGetLength")
 private external fun _nGetLength(ptr: NativePointer): Float
 
 @ExternalSymbolName("org_jetbrains_skia_PathMeasure__1nGetPosition")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_PathMeasure__1nGetPosition")
 private external fun _nGetPosition(ptr: NativePointer, distance: Float, data: InteropPointer): Boolean
 
 @ExternalSymbolName("org_jetbrains_skia_PathMeasure__1nGetTangent")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_PathMeasure__1nGetTangent")
 private external fun _nGetTangent(ptr: NativePointer, distance: Float, data: InteropPointer): Boolean
 
 @ExternalSymbolName("org_jetbrains_skia_PathMeasure__1nGetRSXform")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_PathMeasure__1nGetRSXform")
 private external fun _nGetRSXform(ptr: NativePointer, distance: Float, data: InteropPointer): Boolean
 
 @ExternalSymbolName("org_jetbrains_skia_PathMeasure__1nGetMatrix")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_PathMeasure__1nGetMatrix")
 private external fun _nGetMatrix(
     ptr: NativePointer,
     distance: Float,
@@ -238,6 +257,7 @@ private external fun _nGetMatrix(
 ): Boolean
 
 @ExternalSymbolName("org_jetbrains_skia_PathMeasure__1nGetSegment")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_PathMeasure__1nGetSegment")
 private external fun _nGetSegment(
     ptr: NativePointer,
     startD: Float,
@@ -248,7 +268,9 @@ private external fun _nGetSegment(
 
 
 @ExternalSymbolName("org_jetbrains_skia_PathMeasure__1nIsClosed")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_PathMeasure__1nIsClosed")
 private external fun _nIsClosed(ptr: NativePointer): Boolean
 
 @ExternalSymbolName("org_jetbrains_skia_PathMeasure__1nNextContour")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_PathMeasure__1nNextContour")
 private external fun _nNextContour(ptr: NativePointer): Boolean

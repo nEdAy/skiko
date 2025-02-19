@@ -1,18 +1,22 @@
 package SkiaAwtSample
 
-import org.jetbrains.skiko.*
 import org.jetbrains.skia.*
-import org.jetbrains.skia.paragraph.FontCollection
-import org.jetbrains.skia.paragraph.ParagraphBuilder
-import org.jetbrains.skia.paragraph.ParagraphStyle
-import org.jetbrains.skia.paragraph.TextStyle
+import org.jetbrains.skia.paragraph.*
+import org.jetbrains.skiko.*
+import java.awt.event.MouseEvent
+import java.awt.event.MouseMotionListener
+import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
-import kotlin.math.PI
 
-class ClocksAwt(private val layer: SkiaLayer): SkikoView {
-    private val typeface = Typeface.makeFromFile("fonts/JetBrainsMono-Regular.ttf")
-    private val font = Font(typeface, 40f)
+open class ClocksAwt(private val scaleProvider: () -> Float) : SkikoRenderDelegate, MouseMotionListener {
+    constructor(layer: SkiaLayer) : this({ layer.contentScale })
+
+    private val typeface = FontMgr.default.makeFromFile("fonts/JetBrainsMono-Regular.ttf")
+    private val font = Font(typeface, 13f).apply {
+        edging = FontEdging.SUBPIXEL_ANTI_ALIAS
+        hinting = FontHinting.SLIGHT
+    }
     private val paint = Paint().apply {
             color = 0xff9BC730L.toInt()
             mode = PaintMode.FILL
@@ -20,15 +24,15 @@ class ClocksAwt(private val layer: SkiaLayer): SkikoView {
     }
 
     private var frame = 0
-    private var xpos = 0.0
-    private var ypos = 0.0
+    private var xpos = 0
+    private var ypos = 0
     private val fontCollection = FontCollection()
         .setDefaultFontManager(FontMgr.default)
 
     override fun onRender(canvas: Canvas, width: Int, height: Int, nanoTime: Long) {
         val watchFill = Paint().apply { color = 0xFFFFFFFF.toInt() }
         val watchStroke = Paint().apply {
-               color = 0xFF000000.toInt()
+               color = Color.RED
                mode = PaintMode.STROKE
                strokeWidth = 1f
         }
@@ -75,22 +79,27 @@ class ClocksAwt(private val layer: SkiaLayer): SkikoView {
         }
 
         val text = "Frames: ${frame++}!"
-        canvas.drawString(text, xpos.toFloat(), ypos.toFloat(), font, paint)
-        
-        val style = ParagraphStyle()
-        val renderInfo = ParagraphBuilder(style, fontCollection)
+        val x = xpos.toFloat()
+        val y = ypos.toFloat()
+        canvas.drawString(text, x, y, font, paint)
+
+        val style = ParagraphStyle().apply {
+            fontRastrSettings = FontRastrSettings(FontEdging.SUBPIXEL_ANTI_ALIAS, FontHinting.SLIGHT, true)
+        }
+        val paragraph = ParagraphBuilder(style, fontCollection)
             .pushStyle(TextStyle().setColor(0xFF000000.toInt()))
-            .addText("Graphics API: ${layer.renderApi} ✿ﾟ $currentSystemTheme")
+            .addText("JRE: ${System.getProperty("java.vendor")}, ${System.getProperty("java.runtime.version")} $currentSystemTheme")
             .popStyle()
             .build()
-        renderInfo.layout(Float.POSITIVE_INFINITY)
-        renderInfo.paint(canvas, 5f, 5f)
+        paragraph.layout(Float.POSITIVE_INFINITY)
+        paragraph.paint(canvas, 5f, 5f)
 
         // Alpha layers test
         val rectW = 100f
         val rectH = 100f
-        val left = (width / layer.contentScale - rectW) / 2f
-        val top = (height / layer.contentScale - rectH) / 2f
+        val scale = scaleProvider()
+        val left = (width / scale - rectW) / 2f
+        val top = (height / scale - rectH) / 2f
         val pictureRecorder = PictureRecorder()
         val pictureCanvas = pictureRecorder.beginRecording(
             Rect.makeLTRB(left, top, left + rectW, top + rectH)
@@ -101,23 +110,11 @@ class ClocksAwt(private val layer: SkiaLayer): SkikoView {
         canvas.drawLine(left, top + rectH, left + rectW, top, Paint())
     }
 
-    override fun onPointerEvent(event: SkikoPointerEvent) {
-        when (event.kind) {
-            SkikoPointerEventKind.DOWN,
-            SkikoPointerEventKind.MOVE -> {
-                xpos = event.x
-                ypos = event.y
-            }
-            else -> {}
-        }
-        // TODO: provide example that covers all features of pointer event
+    override fun mouseDragged(e: MouseEvent) {
     }
 
-    override fun onInputEvent(event: SkikoInputEvent) {
-        // TODO: provide example that covers all features of text input event
-    }
-
-    override fun onKeyboardEvent(event: SkikoKeyboardEvent) {
-        // TODO: provide example that covers all features of keyboard event
+    override fun mouseMoved(e: MouseEvent) {
+        xpos = e.x
+        ypos = e.y
     }
 }

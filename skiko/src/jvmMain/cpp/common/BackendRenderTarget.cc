@@ -1,6 +1,11 @@
 #include <iostream>
 #include <jni.h>
-#include "GrBackendSurface.h"
+#include <ganesh/gl/GrGLBackendSurface.h>
+#include "ganesh/GrBackendSurface.h"
+#ifdef SK_METAL
+#include "ganesh/mtl/GrMtlBackendSurface.h"
+#include "ganesh/mtl/GrMtlTypes.h"
+#endif
 
 static void deleteBackendRenderTarget(GrBackendRenderTarget* rt) {
     // std::cout << "Deleting [GrBackendRenderTarget " << rt << "]" << std::endl;
@@ -15,7 +20,8 @@ extern "C" JNIEXPORT jlong JNICALL Java_org_jetbrains_skia_BackendRenderTargetKt
 extern "C" JNIEXPORT jlong JNICALL Java_org_jetbrains_skia_BackendRenderTargetKt__1nMakeGL
   (JNIEnv* env, jclass jclass, jint width, jint height, jint sampleCnt, jint stencilBits, jint fbId, jint fbFormat) {
     GrGLFramebufferInfo glInfo = { static_cast<unsigned int>(fbId), static_cast<unsigned int>(fbFormat) };
-    GrBackendRenderTarget* instance = new GrBackendRenderTarget(width, height, sampleCnt, stencilBits, glInfo);
+    GrBackendRenderTarget obj = GrBackendRenderTargets::MakeGL(width, height, sampleCnt, stencilBits, glInfo);
+    GrBackendRenderTarget* instance = new GrBackendRenderTarget(obj);
     return reinterpret_cast<jlong>(instance);
 }
 
@@ -25,13 +31,14 @@ extern "C" JNIEXPORT jlong JNICALL Java_org_jetbrains_skia_BackendRenderTargetKt
     GrMTLHandle texture = reinterpret_cast<GrMTLHandle>(static_cast<uintptr_t>(texturePtr));
     GrMtlTextureInfo fbInfo;
     fbInfo.fTexture.retain(texture);
-    GrBackendRenderTarget* instance = new GrBackendRenderTarget(width, height, fbInfo);
+    GrBackendRenderTarget obj = GrBackendRenderTargets::MakeMtl(width, height, fbInfo);
+    GrBackendRenderTarget* instance = new GrBackendRenderTarget(obj);
     return reinterpret_cast<jlong>(instance);
 }
 #endif
 
 #ifdef SK_DIRECT3D
-#include "d3d/GrD3DTypes.h"
+#include "ganesh/d3d/GrD3DTypes.h"
 
 extern "C" JNIEXPORT jlong JNICALL Java_org_jetbrains_skia_BackendRenderTargetKt__1nMakeDirect3D
   (JNIEnv* env, jclass jclass, jint width, jint height, jlong texturePtr, jint format, jint sampleCnt, jint levelCnt) {

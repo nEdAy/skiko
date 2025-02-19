@@ -7,14 +7,16 @@
 #include "window_util.h"
 
 #include "SkColorSpace.h"
-#include "GrBackendSurface.h"
-#include "GrDirectContext.h"
+#include "ganesh/GrBackendSurface.h"
+#include "ganesh/GrDirectContext.h"
 #include "SkSurface.h"
-#include "../common/interop.hh"
+#include "include/gpu/ganesh/SkSurfaceGanesh.h"
+#include "interop.hh"
+#include "DCompLibrary.h"
 
-#include "d3d/GrD3DTypes.h"
+#include "ganesh/d3d/GrD3DTypes.h"
 #include <d3d12sdklayers.h>
-#include "d3d/GrD3DBackendContext.h"
+#include "ganesh/d3d/GrD3DBackendContext.h"
 #include <d3d12.h>
 #include <dxgi1_4.h>
 #include <dxgi1_6.h>
@@ -24,13 +26,16 @@ const int BuffersCount = 2;
 class DirectXDevice
 {
 public:
-    HWND window;
+    HWND hWnd; // Handle of native view.
     GrD3DBackendContext backendContext;
     gr_cp<ID3D12Device> device;
     gr_cp<IDXGISwapChain3> swapChain;
     gr_cp<ID3D12CommandQueue> queue;
     gr_cp<ID3D12Resource> buffers[BuffersCount];
     gr_cp<ID3D12Fence> fence;
+    gr_cp<IDCompositionDevice> dcDevice;
+    gr_cp<IDCompositionTarget> dcTarget;
+    gr_cp<IDCompositionVisual> dcVisual;
     uint64_t fenceValues[BuffersCount];
     HANDLE fenceEvent = NULL;
     unsigned int bufferIndex;
@@ -51,26 +56,71 @@ public:
         device.reset(nullptr);
     }
 
-    void initSwapChain() {
+    void initSwapChain(UINT width, UINT height, jboolean transparency) {
         gr_cp<IDXGIFactory4> swapChainFactory4;
         gr_cp<IDXGISwapChain1> swapChain1;
         CreateDXGIFactory2(0, IID_PPV_ARGS(&swapChainFactory4));
-        DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
-        swapChainDesc.BufferCount = BuffersCount;
-        swapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-        swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-        swapChainDesc.SampleDesc.Count = 1;
-        swapChainDesc.Scaling = DXGI_SCALING_NONE;
-        swapChainFactory4->CreateSwapChainForHwnd(queue.get(), window, &swapChainDesc, nullptr, nullptr, &swapChain1);
-        swapChainFactory4->MakeWindowAssociation(window, DXGI_MWA_NO_ALT_ENTER);
+        HRESULT result = S_OK;
+        if (transparency) {
+            result = CreateSwapChainForComposition(swapChainFactory4.get(), width, height, &swapChain1);
+        }
+        if (!transparency || FAILED(result)) {
+            /*
+             * It's just a fallback path that added for compatibility.
+             * In this case transparency won't be supported.
+             */
+            swapChain1.reset(nullptr);
+            CreateSwapChainForHwnd(swapChainFactory4.get(), width, height, &swapChain1);
+        }
+        swapChainFactory4->MakeWindowAssociation(hWnd, DXGI_MWA_NO_ALT_ENTER);
         swapChain1->QueryInterface(IID_PPV_ARGS(&swapChain));
-        RECT windowRect;
-        GetWindowRect(window, &windowRect);
-        unsigned int w = windowRect.right - windowRect.left;
-        unsigned int h = windowRect.bottom - windowRect.top;
-        swapChain->ResizeBuffers(BuffersCount, w, h, DXGI_FORMAT_R8G8B8A8_UNORM, 0);
         swapChainFactory4.reset(nullptr);
+    }
+
+private:
+    HRESULT CreateSwapChainForComposition(IDXGIFactory4 *swapChainFactory4, UINT width, UINT height, IDXGISwapChain1 **swapChain1) {
+        DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
+        swapChainDesc.Width = width;
+        swapChainDesc.Height = height;
+        swapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        swapChainDesc.SampleDesc.Count = 1;
+        swapChainDesc.SampleDesc.Quality = 0;
+        swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        swapChainDesc.BufferCount = BuffersCount;
+        swapChainDesc.Scaling = DXGI_SCALING_STRETCH;
+        swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+        swapChainDesc.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
+        HRESULT result = swapChainFactory4->CreateSwapChainForComposition(queue.get(), &swapChainDesc, nullptr, swapChain1);
+        if (FAILED(result)) { return result; }
+
+        result = DCompLibrary::DCompositionCreateDevice(0, IID_PPV_ARGS(&dcDevice));
+        if (FAILED(result)) { return result; }
+        result = dcDevice->CreateTargetForHwnd(hWnd, true, &dcTarget);
+        if (FAILED(result)) { return result; }
+        result = dcDevice->CreateVisual(&dcVisual);
+        if (FAILED(result)) { return result; }
+        result = dcVisual->SetContent(*swapChain1);
+        if (FAILED(result)) { return result; }
+        result = dcTarget->SetRoot(dcVisual.get());
+        if (FAILED(result)) { return result; }
+        result = dcDevice->Commit();
+        if (FAILED(result)) { return result; }
+
+        return S_OK;
+    }
+
+    HRESULT CreateSwapChainForHwnd(IDXGIFactory4 *swapChainFactory4, UINT width, UINT height, IDXGISwapChain1 **swapChain1) {
+        DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
+        swapChainDesc.Width = width;
+        swapChainDesc.Height = height;
+        swapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        swapChainDesc.SampleDesc.Count = 1;
+        swapChainDesc.SampleDesc.Quality = 0;
+        swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        swapChainDesc.BufferCount = BuffersCount;
+        swapChainDesc.Scaling = DXGI_SCALING_STRETCH;
+        swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+        return swapChainFactory4->CreateSwapChainForHwnd(queue.get(), hWnd, &swapChainDesc, nullptr, nullptr, swapChain1);
     }
 };
 
@@ -291,6 +341,7 @@ extern "C"
             return 0;
         }
 
+        HWND hWnd = fromJavaPointer<HWND>(contentHandle);
         DirectXDevice *d3dDevice = new DirectXDevice();
         d3dDevice->backendContext.fAdapter = adapter;
         d3dDevice->backendContext.fDevice = device;
@@ -299,29 +350,27 @@ extern "C"
 
         d3dDevice->device = device;
         d3dDevice->queue = queue;
-        d3dDevice->window = (HWND)contentHandle;
+        d3dDevice->hWnd = hWnd;
 
         if (transparency) {
-            //TODO: current swapChain does not support transparency
-            return 0;
-            // HWND wnd = GetAncestor(d3dDevice->window, GA_PARENT);
-            // enableTransparentWindow(wnd);
+            const LONG style = GetWindowLong(hWnd, GWL_EXSTYLE);
+            SetWindowLong(hWnd, GWL_EXSTYLE, style | WS_EX_TRANSPARENT);
         }
 
         return toJavaPointer(d3dDevice);
     }
 
     JNIEXPORT void JNICALL Java_org_jetbrains_skiko_redrawer_Direct3DRedrawer_initSwapChain(
-        JNIEnv *env, jobject redrawer, jlong devicePtr)
+        JNIEnv *env, jobject redrawer, jlong devicePtr, jint width, jint height, jboolean transparency)
     {
         __try
         {
             DirectXDevice *d3dDevice = fromJavaPointer<DirectXDevice *>(devicePtr);
-            d3dDevice->initSwapChain();
+            d3dDevice->initSwapChain((UINT) width, (UINT) height, transparency);
         }
         __except(EXCEPTION_EXECUTE_HANDLER) {
             auto code = GetExceptionCode();
-            throwJavaException(env, __FUNCTION__, code);
+            throwJavaRenderExceptionByExceptionCode(env, __FUNCTION__, code);
         }
     }
 
@@ -341,7 +390,7 @@ extern "C"
         }
         __except(EXCEPTION_EXECUTE_HANDLER) {
             auto code = GetExceptionCode();
-            throwJavaException(env, __FUNCTION__, code);
+            throwJavaRenderExceptionByExceptionCode(env, __FUNCTION__, code);
         }
     }
 
@@ -354,7 +403,7 @@ extern "C"
     }
 
     JNIEXPORT jlong JNICALL Java_org_jetbrains_skiko_redrawer_Direct3DRedrawer_makeDirectXSurface(
-        JNIEnv *env, jobject redrawer, jlong devicePtr, jlong contextPtr, jint width, jint height, jobject surfacePropsObj, jint index)
+        JNIEnv *env, jobject redrawer, jlong devicePtr, jlong contextPtr, jint width, jint height, jintArray surfacePropsInts, jint index)
     {
         DirectXDevice *d3dDevice = fromJavaPointer<DirectXDevice *>(devicePtr);
         GrDirectContext *context = fromJavaPointer<GrDirectContext *>(contextPtr);
@@ -369,9 +418,9 @@ extern "C"
 
         info.fResource = d3dDevice->buffers[index];
 
-        std::unique_ptr<SkSurfaceProps> surfaceProps = skija::SurfaceProps::toSkSurfaceProps(env, surfacePropsObj);
+        std::unique_ptr<SkSurfaceProps> surfaceProps = skija::SurfaceProps::toSkSurfaceProps(env, surfacePropsInts);
         GrBackendTexture backendTexture((int)d3dDevice->buffers[index]->GetDesc().Width, (int)d3dDevice->buffers[index]->GetDesc().Height, info);
-        auto result = SkSurface::MakeFromBackendTexture(
+        auto result = SkSurfaces::WrapBackendTexture(
                                  context, backendTexture, kTopLeft_GrSurfaceOrigin, 0,
                                  kRGBA_8888_SkColorType, SkColorSpace::MakeSRGB(), surfaceProps.get())
                                  .release();
@@ -396,7 +445,7 @@ extern "C"
         }
         __except(EXCEPTION_EXECUTE_HANDLER) {
             auto code = GetExceptionCode();
-            throwJavaException(env, __FUNCTION__, code);
+            throwJavaRenderExceptionByExceptionCode(env, __FUNCTION__, code);
         }
     }
 
@@ -413,7 +462,7 @@ extern "C"
         }
         __except(EXCEPTION_EXECUTE_HANDLER) {
             auto code = GetExceptionCode();
-            throwJavaException(env, __FUNCTION__, code);
+            throwJavaRenderExceptionByExceptionCode(env, __FUNCTION__, code);
         }
     }
 
@@ -441,7 +490,7 @@ extern "C"
         }
         __except(EXCEPTION_EXECUTE_HANDLER) {
             auto code = GetExceptionCode();
-            throwJavaException(env, __FUNCTION__, code);
+            throwJavaRenderExceptionByExceptionCode(env, __FUNCTION__, code);
         }
     }
 

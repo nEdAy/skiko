@@ -10,6 +10,7 @@
 #include "SkMatrix.h"
 #include "SkM44.h"
 #include "SkPaint.h"
+#include "SkPicture.h"
 #include "SkRefCnt.h"
 #include "SkRect.h"
 #include "SkRRect.h"
@@ -226,7 +227,7 @@ namespace skija {
         void onLoad(JNIEnv* env);
         void onUnload(JNIEnv* env);
         jobject fromSkIRect(JNIEnv* env, const SkIRect& rect);
-        std::unique_ptr<SkIRect> toSkIRect(JNIEnv* env, jobject obj);
+        std::unique_ptr<SkIRect> toSkIRect(JNIEnv* env, jintArray obj);
     }
 
     namespace Path {
@@ -315,10 +316,6 @@ namespace skija {
     }
 
     namespace SurfaceProps {
-        extern jmethodID _getFlags;
-        extern jmethodID _getPixelGeometryOrdinal;
-        void onLoad(JNIEnv* env);
-        std::unique_ptr<SkSurfaceProps> toSkSurfaceProps(JNIEnv* env, jobject surfacePropsObj);
         std::unique_ptr<SkSurfaceProps> toSkSurfaceProps(JNIEnv* env, jintArray surfacePropsInts);
     }
 

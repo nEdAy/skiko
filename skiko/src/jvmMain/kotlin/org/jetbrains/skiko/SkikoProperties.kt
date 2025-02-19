@@ -1,6 +1,6 @@
 package org.jetbrains.skiko
 
-import java.lang.System.getProperty
+import java.util.*
 
 // TODO maybe we can get rid of global properties, and pass SkiaLayerProperties to Window -> ComposeWindow -> SkiaLayer
 @Suppress("SameParameterValue")
@@ -8,7 +8,51 @@ import java.lang.System.getProperty
  * Global Skiko properties, which are read from system JDK variables orr from environment variables
  */
 object SkikoProperties {
+    /**
+     * Path where the Skiko binaries (dll/so/dylib, depending on OS) are placed.
+     *
+     * If defined, SKiko doesn't extract binaries from `jar` files to external folder.
+     *
+     * If null (default), it extracts them to `libraryCachePath`
+     */
+    var libraryPath: String?
+        get() = getProperty("skiko.library.path")
+        internal set(value) {
+            if (value != null) {
+                System.setProperty("skiko.library.path", value)
+            } else {
+                System.clearProperty("skiko.library.path")
+            }
+        }
+
+    /**
+     * The path where to store data files.
+     *
+     * It is used for extracting the Skiko binaries (if `libraryPath` isn't null) and logging.
+     */
+    val dataPath: String get() = getProperty("skiko.data.path") ?: "${getProperty("user.home")}/.skiko/"
+
     val vsyncEnabled: Boolean get() = getProperty("skiko.vsync.enabled")?.toBoolean() ?: true
+
+    val frameBuffering: FrameBuffering get() {
+        return when (getProperty("skiko.buffering")) {
+            "DOUBLE" -> FrameBuffering.DOUBLE
+            "TRIPLE" -> FrameBuffering.TRIPLE
+            else -> FrameBuffering.DEFAULT
+        }
+    }
+
+    val macOSWaitForPreviousFrameVsyncOnRedrawImmediately: Boolean get() {
+        return getProperty("skiko.rendering.macos.waitForPreviousFrameVsyncOnRedrawImmediately")?.toBoolean() ?: true
+    }
+
+    val windowsWaitForVsyncOnRedrawImmediately: Boolean get() {
+        return getProperty("skiko.rendering.windows.waitForFrameVsyncOnRedrawImmediately")?.toBoolean() ?: false
+    }
+
+    val linuxWaitForVsyncOnRedrawImmediately: Boolean get() {
+        return getProperty("skiko.rendering.linux.waitForFrameVsyncOnRedrawImmediately")?.toBoolean() ?: false
+    }
 
     /**
      * If vsync is enabled, but platform can't support it (Software renderer, Linux with uninstalled drivers),
@@ -43,6 +87,21 @@ object SkikoProperties {
         return value?.let(GpuPriority::parseOrNull) ?: GpuPriority.Auto
     }
 
+    val macOsOpenGLEnabled: Boolean get() = getProperty("skiko.macos.opengl.enabled")?.toBoolean() ?: false
+
+    private val properties = run {
+        val resourcePropertiesEnabled = System.getProperty("skiko.resource.properties.enabled")?.toBoolean() ?: false
+        val resources = if (resourcePropertiesEnabled) {
+            SkikoProperties::class.java.classLoader.getResourceAsStream("skiko.properties")
+        } else {
+            null
+        }
+        val systemProps = System.getProperties()
+        if (resources == null) systemProps else Properties(systemProps).apply { load(resources) }
+    }
+
+    private fun getProperty(key: String): String? = properties.getProperty(key)
+
     internal fun parseRenderApi(text: String?): GraphicsApi {
         when(text) {
             "SOFTWARE_COMPAT" -> return GraphicsApi.SOFTWARE_COMPAT
@@ -70,7 +129,7 @@ object SkikoProperties {
             OS.Linux -> return GraphicsApi.OPENGL
             OS.Windows -> return GraphicsApi.DIRECT3D
             OS.Android -> return GraphicsApi.OPENGL
-            OS.JS, OS.Ios -> TODO("commonize me")
+            OS.JS, OS.Ios, OS.Tvos, OS.Unknown -> TODO("commonize me")
         }
     }
 
@@ -84,7 +143,7 @@ object SkikoProperties {
                 else -> listOf(GraphicsApi.DIRECT3D, GraphicsApi.OPENGL, GraphicsApi.SOFTWARE_FAST, GraphicsApi.SOFTWARE_COMPAT)
             }
             OS.Android -> return listOf(GraphicsApi.OPENGL)
-            OS.JS, OS.Ios -> TODO("commonize me")
+            OS.JS, OS.Ios, OS.Tvos, OS.Unknown -> TODO("commonize me")
         }
 
         val indexOfInitialApi = fallbackApis.indexOf(initialApi)

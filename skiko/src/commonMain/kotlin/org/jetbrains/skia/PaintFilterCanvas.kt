@@ -7,8 +7,8 @@ import org.jetbrains.skia.impl.Library.Companion.staticLoad
  * A utility proxy base class for implementing draw/paint filters.
  */
 abstract class PaintFilterCanvas(private val canvas: Canvas, unrollDrawable: Boolean) :
-    Canvas(PaintFilterCanvas_nMake(getPtr(canvas), unrollDrawable), true, canvas) {
-    companion object {
+    Canvas(makePaintFilterCanvas(canvas, unrollDrawable), true, canvas) {
+    private companion object {
         init {
             staticLoad()
         }
@@ -23,7 +23,9 @@ abstract class PaintFilterCanvas(private val canvas: Canvas, unrollDrawable: Boo
      *
      * Note: The base implementation calls onFilter() for top-level/explicit paints only.
      */
-    abstract fun onFilter(paint: Paint): Boolean
+    protected abstract fun onFilter(paint: Paint): Boolean
+
+    // For JNI call
     fun onFilter(paintPtr: NativePointer): Boolean {
         val paint = Paint(paintPtr, false)
         return onFilter(paint)
@@ -34,8 +36,19 @@ abstract class PaintFilterCanvas(private val canvas: Canvas, unrollDrawable: Boo
      */
     init {
         Stats.onNativeCall()
-        doInit(_ptr)
-        Stats.onNativeCall()
+        try {
+            doInit(_ptr)
+        } finally {
+            reachabilityBarrier(this)
+        }
+    }
+}
+
+private fun makePaintFilterCanvas(canvas: Canvas, unrollDrawable: Boolean): NativePointer {
+    Stats.onNativeCall()
+    return try {
+        PaintFilterCanvas_nMake(getPtr(canvas), unrollDrawable)
+    } finally {
         reachabilityBarrier(canvas)
     }
 }
@@ -43,12 +56,5 @@ abstract class PaintFilterCanvas(private val canvas: Canvas, unrollDrawable: Boo
 internal expect fun PaintFilterCanvas.doInit(ptr: NativePointer)
 
 @ExternalSymbolName("org_jetbrains_skia_PaintFilterCanvas__1nMake")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_PaintFilterCanvas__1nMake")
 private external fun PaintFilterCanvas_nMake(canvasPtr: NativePointer, unrollDrawable: Boolean): NativePointer
-
-// Native/JS only
-
-@ExternalSymbolName("org_jetbrains_skia_PaintFilterCanvas__1nInit")
-internal external fun PaintFilterCanvas_nInit(ptr: NativePointer, onFilter: InteropPointer)
-
-@ExternalSymbolName("org_jetbrains_skia_PaintFilterCanvas__1nGetOnFilterPaint")
-internal external fun PaintFilterCanvas_nGetOnFilterPaint(ptr: NativePointer): NativePointer

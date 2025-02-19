@@ -1,15 +1,10 @@
 package org.jetbrains.skia
 
+import org.jetbrains.skia.impl.reachabilityBarrier
 import org.jetbrains.skiko.OS
 import org.jetbrains.skiko.hostOs
-import org.jetbrains.skiko.tests.SkipJsTarget
-import org.jetbrains.skiko.tests.SkipJvmTarget
-import org.jetbrains.skiko.tests.SkipNativeTarget
-import kotlin.test.Test
-import kotlin.test.assertContentEquals
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertTrue
+import org.jetbrains.skiko.tests.*
+import kotlin.test.*
 
 private fun BreakIterator.asSequence() = generateSequence { next().let { n -> if (n == -1) null else n } }
 
@@ -18,22 +13,24 @@ class BreakIteratorTests {
 
     @Test
     @SkipJsTarget
+    @SkipWasmTarget
     fun breakIteratorWordInstanceTest() {
         // Wasm and iOS builds of Skia do not include required data to implement those iterators,
         // see `third_party/externals/icu/flutter/README.md`.
-        if (hostOs == OS.Ios)
+        if (hostOs == OS.Ios || hostOs == OS.Tvos)
             return
 
         val boundary = BreakIterator.makeWordInstance()
         boundary.setText("家捷克的软件开发公司 ,software development company")
 
-        assertContentEquals(listOf(1, 3, 4, 6, 8, 10, 11, 12, 20, 21, 32, 33, 40), boundary.asSequence().toList())
+        val boundariesList = listOf(1, 3, 4, 6, 8, 10, 11, 12, 20, 21, 32, 33, 40)
+        assertContentEquals(boundariesList, boundary.asSequence().toList())
+        assertEquals(-1, boundary.next())
+
+        //todo check what happens if we will continue with next() after -1
 
         assertEquals(0, boundary.first())
         assertEquals(40, boundary.last())
-
-        val boundaryCloned = boundary.clone()
-        assertContentEquals(boundary.asSequence().toList(), boundaryCloned.asSequence().toList())
     }
 
     @Test
@@ -51,6 +48,7 @@ class BreakIteratorTests {
 
     @Test
     @SkipJsTarget
+    @SkipWasmTarget
     fun breakIteratorSentenceInstanceTest() {
         // Wasm and iOS builds of Skia do not include required data to implement those iterators,
         // see `third_party/externals/icu/flutter/README.md`.
@@ -65,5 +63,14 @@ class BreakIteratorTests {
         )
 
         assertContentEquals(listOf(167, 287), boundary.asSequence().toList())
+    }
+
+    @Test
+    fun breakRuleStatusesTest() {
+        val boundary = BreakIterator.makeWordInstance()
+        boundary.setText("Hello world!")
+        boundary.next()
+        assertEquals(boundary.ruleStatus, 200)
+        assertContentEquals(listOf(200), boundary.ruleStatuses.toList())
     }
 }
