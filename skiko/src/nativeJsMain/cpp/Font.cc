@@ -72,7 +72,7 @@ SKIKO_EXPORT KBoolean org_jetbrains_skia_Font__1nIsSubpixel
     return instance->isSubpixel();
 }
 
-SKIKO_EXPORT KBoolean org_jetbrains_skia_Font__1nAreMetricsLinear
+SKIKO_EXPORT KBoolean org_jetbrains_skia_Font__1nIsLinearMetrics
   (KNativePointer ptr) {
     SkFont* instance = reinterpret_cast<SkFont*>(ptr);
     return instance->isLinearMetrics();
@@ -108,7 +108,7 @@ SKIKO_EXPORT void org_jetbrains_skia_Font__1nSetSubpixel
     instance->setSubpixel(value);
 }
 
-SKIKO_EXPORT void org_jetbrains_skia_Font__1nSetMetricsLinear
+SKIKO_EXPORT void org_jetbrains_skia_Font__1nSetLinearMetrics
   (KNativePointer ptr, KBoolean value) {
     SkFont* instance = reinterpret_cast<SkFont*>(ptr);
     instance->setLinearMetrics(value);
@@ -154,13 +154,6 @@ SKIKO_EXPORT KNativePointer org_jetbrains_skia_Font__1nGetTypeface
  (KNativePointer ptr) {
     SkFont* instance = reinterpret_cast<SkFont*>(ptr);
     SkTypeface* typeface = instance->refTypeface().release();
-    return reinterpret_cast<KNativePointer>(typeface);
-}
-
-SKIKO_EXPORT KNativePointer org_jetbrains_skia_Font__1nGetTypefaceOrDefault
- (KNativePointer ptr) {
-    SkFont* instance = reinterpret_cast<SkFont*>(ptr);
-    SkTypeface* typeface = instance->refTypefaceOrDefault().release();
     return reinterpret_cast<KNativePointer>(typeface);
 }
 
@@ -360,7 +353,7 @@ SKIKO_EXPORT void org_jetbrains_skia_Font__1nGetMetrics
 
 
 SKIKO_EXPORT KFloat org_jetbrains_skia_Font__1nGetSpacing
-  (KNativePointer ptr, KShort* glyphsArr) {
+  (KNativePointer ptr) {
     SkFont* instance = reinterpret_cast<SkFont*>(ptr);
     return instance->getSpacing();
 }

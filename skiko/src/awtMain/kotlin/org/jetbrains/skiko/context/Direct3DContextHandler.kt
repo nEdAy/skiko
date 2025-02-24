@@ -3,6 +3,7 @@ package org.jetbrains.skiko.context
 import org.jetbrains.skia.Surface
 import org.jetbrains.skia.SurfaceProps
 import org.jetbrains.skia.impl.getPtr
+import org.jetbrains.skiko.Logger
 import org.jetbrains.skiko.SkiaLayer
 import org.jetbrains.skiko.redrawer.Direct3DRedrawer
 import java.lang.ref.Reference
@@ -20,11 +21,11 @@ internal class Direct3DContextHandler(layer: SkiaLayer) : JvmContextHandler(laye
             if (context == null) {
                 context = directXRedrawer.makeContext()
                 if (System.getProperty("skiko.hardwareInfo.enabled") == "true") {
-                    println(rendererInfo())
+                    Logger.info { "Renderer info:\n ${rendererInfo()}" }
                 }
             }
         } catch (e: Exception) {
-            println("${e.message}\nFailed to create Skia Direct3D context!")
+            Logger.warn(e) { "Failed to create Skia Direct3D context!" }
             return false
         }
         return true
@@ -40,34 +41,38 @@ internal class Direct3DContextHandler(layer: SkiaLayer) : JvmContextHandler(laye
         }
         return false
     }
-    private var isD3DInited = false
 
     override fun initCanvas() {
+        val context = context ?: return
         val scale = layer.contentScale
-        val w = (layer.width * scale).toInt().coerceAtLeast(0)
-        val h = (layer.height * scale).toInt().coerceAtLeast(0)
-        val surfaceProps = SurfaceProps(pixelGeometry = layer.pixelGeometry)
 
-        if (isSizeChanged(w, h) || isSurfacesNull()) {
+        // Direct3D can't work with zero size.
+        // Don't rewrite code to skipping, as we need the whole pipeline in zero case too
+        // (drawing -> flushing -> swapping -> waiting for vsync)
+        val width = (layer.width * scale).toInt().coerceAtLeast(1)
+        val height = (layer.height * scale).toInt().coerceAtLeast(1)
+
+        if (isSizeChanged(width, height) || isSurfacesNull()) {
             disposeCanvas()
-            context?.flush()
-            
-            if (!isD3DInited) {
-                directXRedrawer.initSwapChain()
-            } else {
-                directXRedrawer.resizeBuffers(w, h)
-            }
-            
+            context.flush()
+
+            val justInitialized = directXRedrawer.changeSize(width, height)
             try {
-                for (bufferIndex in 0..bufferCount - 1) {
-                    surfaces[bufferIndex] = directXRedrawer.makeSurface(getPtr(context!!), w, h, surfaceProps, bufferIndex)
+                val surfaceProps = SurfaceProps(pixelGeometry = layer.pixelGeometry)
+                for (bufferIndex in 0 until bufferCount) {
+                    surfaces[bufferIndex] = directXRedrawer.makeSurface(
+                        context = getPtr(context),
+                        width = width,
+                        height = height,
+                        surfaceProps = surfaceProps,
+                        index = bufferIndex
+                    )
                 }
             } finally {
-                Reference.reachabilityFence(context!!)
+                Reference.reachabilityFence(context)
             }
 
-            if (!isD3DInited) {
-                isD3DInited = true
+            if (justInitialized) {
                 directXRedrawer.initFence()
             }
         }
@@ -76,14 +81,13 @@ internal class Direct3DContextHandler(layer: SkiaLayer) : JvmContextHandler(laye
     }
 
     override fun flush() {
+        val context = context ?: return
+        val surface = surface ?: return
         try {
-            flush(
-                getPtr(context!!),
-                getPtr(surface!!)
-            )
+            flush(getPtr(context), getPtr(surface))
         } finally {
-            Reference.reachabilityFence(context!!)
-            Reference.reachabilityFence(surface!!)
+            Reference.reachabilityFence(context)
+            Reference.reachabilityFence(surface)
         }
     }
 

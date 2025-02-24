@@ -1,3 +1,4 @@
+import org.gradle.api.GradleException
 import org.gradle.api.Project
 import java.io.File
 
@@ -10,14 +11,18 @@ enum class OS(
     Windows("windows", arrayOf()),
     MacOS("macos", arrayOf("-mmacosx-version-min=10.13")),
     Wasm("wasm", arrayOf()),
-    IOS("ios", arrayOf())
+    IOS("ios", arrayOf()),
+    TVOS("tvos", arrayOf())
     ;
 
     val isWindows
         get() = this == Windows
 
-    fun idWithSuffix(isIosSim: Boolean = false): String {
-        return id + if (isIosSim) "Sim" else ""
+    val isMacOs
+        get() = this == MacOS
+
+    fun idWithSuffix(isUikitSim: Boolean = false): String {
+        return id + if (isUikitSim) "Sim" else ""
     }
 }
 
@@ -25,7 +30,7 @@ val OS.isCompatibleWithHost: Boolean
     get() = when (this) {
         OS.Linux -> hostOs == OS.Linux
         OS.Windows -> hostOs == OS.Windows
-        OS.MacOS, OS.IOS -> hostOs == OS.MacOS
+        OS.MacOS, OS.IOS, OS.TVOS -> hostOs == OS.MacOS
         OS.Wasm -> true
         OS.Android -> true
     }
@@ -38,19 +43,19 @@ fun compilerForTarget(os: OS, arch: Arch): String =
             Arch.Wasm -> "Unexpected combination: $os & $arch"
         }
         OS.Android -> "clang++"
-        OS.Windows -> "cl.exe"
-        OS.MacOS, OS.IOS -> "clang++"
+        OS.Windows -> "clang-cl.exe"
+        OS.MacOS, OS.IOS, OS.TVOS -> "clang++"
         OS.Wasm -> "emcc"
     }
 
 fun linkerForTarget(os: OS, arch: Arch): String =
-    if (os.isWindows) "link.exe" else compilerForTarget(os, arch)
+    if (os.isWindows) "lld-link.exe" else compilerForTarget(os, arch)
 
 val OS.dynamicLibExt: String
     get() = when (this) {
         OS.Linux, OS.Android -> ".so"
         OS.Windows -> ".dll"
-        OS.MacOS, OS.IOS -> ".dylib"
+        OS.MacOS, OS.IOS, OS.TVOS -> ".dylib"
         OS.Wasm -> ".wasm"
     }
 
@@ -69,22 +74,22 @@ enum class SkiaBuildType(
     val id: String,
     val flags: Array<String>,
     val clangFlags: Array<String>,
-    val msvcCompilerFlags: Array<String>,
-    val msvcLinkerFlags: Array<String>
+    val winCompilerFlags: Array<String>,
+    val winLinkerFlags: Array<String>
 ) {
     DEBUG(
-        "Debug",
+        id = "Debug",
         flags = arrayOf("-DSK_DEBUG"),
-        clangFlags = arrayOf("-std=c++17", "-g"),
-        msvcCompilerFlags = arrayOf("/Zi /std:c++17"),
-        msvcLinkerFlags = arrayOf("/DEBUG"),
+        clangFlags = arrayOf("-std=c++17", "-g", "-DSK_TRIVIAL_ABI=[[clang::trivial_abi]]"),
+        winCompilerFlags = arrayOf("/Zi", "/std:c++17"),
+        winLinkerFlags = arrayOf("/DEBUG"),
     ),
     RELEASE(
         id = "Release",
         flags = arrayOf("-DNDEBUG"),
         clangFlags = arrayOf("-std=c++17", "-O3"),
-        msvcCompilerFlags = arrayOf("/O2 /std:c++17"),
-        msvcLinkerFlags = arrayOf("/DEBUG"),
+        winCompilerFlags = arrayOf("/O2", "/std:c++17"),
+        winLinkerFlags = arrayOf("/DEBUG"),
     );
     override fun toString() = id
 }
@@ -113,7 +118,7 @@ fun targetId(os: OS, arch: Arch) = "${os.id}-${arch.id}"
 val jdkHome = System.getProperty("java.home") ?: error("'java.home' is null")
 
 class SkikoProperties(private val myProject: Project) {
-    val isCIBuild: Boolean
+    val isTeamcityCIBuild: Boolean
         get() = myProject.hasProperty("teamcity")
 
     val planeDeployVersion: String = myProject.property("deploy.version") as String
@@ -121,7 +126,8 @@ class SkikoProperties(private val myProject: Project) {
     val deployVersion: String
         get() {
             val main = if (isRelease) planeDeployVersion else "$planeDeployVersion-SNAPSHOT"
-            val metadata = if (buildType == SkiaBuildType.DEBUG) "+debug" else ""
+            var metadata = if (buildType == SkiaBuildType.DEBUG) "+debug" else ""
+            metadata += if (isWasmBuildWithProfiling) "+profiling" else ""
             return main + metadata
         }
 
@@ -131,18 +137,14 @@ class SkikoProperties(private val myProject: Project) {
     val buildType: SkiaBuildType
         get() = if (myProject.findProperty("skiko.debug") == "true") SkiaBuildType.DEBUG else SkiaBuildType.RELEASE
 
+    val isWasmBuildWithProfiling: Boolean
+        get() = myProject.findProperty("skiko.wasm.withProfiling") == "true"
+
     val targetArch: Arch
         get() = myProject.findProperty("skiko.arch")?.toString()?.let(Arch::byName) ?: hostArch
 
     val includeTestHelpers: Boolean
         get() = !isRelease
-
-    fun skiaReleaseFor(os: OS, arch: Arch, buildType: SkiaBuildType, isIosSim: Boolean = false): String {
-        val target = "${os.idWithSuffix(isIosSim = isIosSim)}-${arch.id}"
-        val tag = myProject.property("dependencies.skia.$target") as String
-        val suffix = if (os == OS.Linux && arch == Arch.X64) "-ubuntu18" else ""
-        return "${tag}/Skia-${tag}-${os.idWithSuffix(isIosSim = isIosSim)}-${buildType.id}-${arch.id}$suffix"
-    }
 
     val releaseGithubVersion: String
         get() = (myProject.property("release.github.version") as String)
@@ -155,11 +157,12 @@ class SkikoProperties(private val myProject: Project) {
 
     // todo: make compatible with the configuration cache
     val skiaDir: File?
-        get() = (
-                System.getenv()["SKIA_DIR"]
-                ?: System.getProperty("skia.dir")
-                ?: myProject.findProperty("skia.dir")?.toString()
-            )?.let { File(it) }?.takeIf { it.isDirectory }
+        get() = (System.getenv()["SKIA_DIR"] ?: System.getProperty("skia.dir") ?: myProject.findProperty("skia.dir")
+            ?.toString())?.let { skiaDirProp ->
+                val file = File(skiaDirProp)
+                if (!file.isDirectory) throw (GradleException("\"skiko.skiaDir\" property was explicitly set to ${skiaDirProp} which is not resolved as a directory"))
+                file
+            }
 
     val composeRepoUrl: String
         get() = System.getenv("COMPOSE_REPO_URL") ?: "https://maven.pkg.jetbrains.space/public/p/compose/dev"
@@ -191,7 +194,11 @@ object SkikoArtifacts {
     // names are also used in samples, e.g. samples/SkijaInjectSample/build.gradle
     val commonArtifactId = "skiko"
     val jvmArtifactId = "skiko-awt"
+    // an artifact (klib) for k/js targets
     val jsArtifactId = "skiko-js"
+    // an artifact (klib) for k/wasm targets
+    val wasmArtifactId = "skiko-wasm-js"
+    // an artifact with skiko.wasm and supporting js code - jar
     val jsWasmArtifactId = "skiko-js-wasm-runtime"
     fun jvmRuntimeArtifactIdFor(os: OS, arch: Arch) =
         if (os == OS.Android)
@@ -202,6 +209,6 @@ object SkikoArtifacts {
     // does not seem possible (at least without adding a dash to a target's tasks),
     // so we're using the default naming pattern instead.
     // See https://youtrack.jetbrains.com/issue/KT-50001.
-    fun nativeArtifactIdFor(os: OS, arch: Arch, isIosSim: Boolean = false) =
-        "skiko-${os.id + if (isIosSim) "simulator" else ""}${arch.id}"
+    fun nativeArtifactIdFor(os: OS, arch: Arch, isUikitSim: Boolean = false) =
+        "skiko-${os.id + if (isUikitSim) "simulator" else ""}${arch.id}"
 }

@@ -1,49 +1,82 @@
 package org.jetbrains.skiko.redrawer
 
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
-import org.jetbrains.skia.BackendRenderTarget
-import org.jetbrains.skia.DirectContext
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import org.jetbrains.skiko.*
 import org.jetbrains.skiko.context.MetalContextHandler
 import javax.swing.SwingUtilities.*
 
+/**
+ * Holder for pointer on MetalDevice described in "MetalDevice.h"
+ *
+ * Naturally [MetalDevice] is just a holder for native objects required for drawing such as:
+ *   * [CAMetalLayer](https://developer.apple.com/documentation/quartzcore/cametallayer)
+ *   * [MTLDevice](https://developer.apple.com/documentation/metal/mtldevice)
+ *   * etc.
+ *
+ * @see "src/awtMain/objectiveC/macos/MetalDevice.h"
+ */
+@JvmInline
+internal value class MetalDevice(val ptr: Long)
+
+/**
+ * Provides a way to request draws on Skia canvas created in [layer] bounds using Metal GPU acceleration.
+ *
+ * This [MetalRedrawer] draws content on-screen for maximum efficiency,
+ * but it may prevent for using it in embedded components (such as interop with Swing).
+ * For off-screen implementation see [MetalOffScreenRedrawer]
+ *
+ * Content to draw is provided by [SkiaLayer.draw].
+ *
+ * @see MetalContextHandler
+ * @see FrameDispatcher
+ */
 internal class MetalRedrawer(
     private val layer: SkiaLayer,
     analytics: SkiaLayerAnalytics,
     private val properties: SkiaLayerProperties
 ) : AWTRedrawer(layer, analytics, GraphicsApi.METAL) {
-    private val contextHandler = MetalContextHandler(layer)
-    override val renderInfo: String get() = contextHandler.rendererInfo()
+    private val contextHandler: MetalContextHandler
 
     companion object {
         init {
             Library.load()
         }
     }
+
     private var drawLock = Any()
 
-    private val device: Long
-    val adapterName: String
-    val adapterMemorySize: Long
+    /**
+     * [MetalDevice] initialized for given [layer] or null if [MetalRedrawer] is disposed,
+     * so future calls of [device] will throw exception
+     */
+    private var _device: MetalDevice?
 
-    init {
-        val adapter = chooseAdapter(properties.adapterPriority.ordinal)
-        adapterName = getAdapterName(adapter)
-        adapterMemorySize = getAdapterMemorySize(adapter)
-        onDeviceChosen(adapterName)
-        device = layer.backedLayer.useDrawingSurfacePlatformInfo {
-            createMetalDevice(layer.windowHandle, layer.transparency, adapter, it)
+    private val device: MetalDevice
+        get() {
+            val currentDevice = _device
+            require(currentDevice != null) { "Device is disposed" }
+            return currentDevice
         }
-    }
 
-    private val windowHandle = layer.windowHandle
+    private val adapter = chooseMetalAdapter(properties.adapterPriority)
+    private val displayLinkThrottler = DisplayLinkThrottler(layer.windowHandle)
+
+    private val windowOcclusionStateChannel = Channel<Boolean>(Channel.CONFLATED)
+    @Volatile private var isWindowOccluded = false
 
     init {
-        setVSyncEnabled(device, properties.isVsyncEnabled)
+        onDeviceChosen(adapter.name)
+        val numberOfBuffers = properties.frameBuffering.numberOfBuffers() ?: 0 // zero means default for system
+        val initDevice = layer.backedLayer.useDrawingSurfacePlatformInfo {
+            MetalDevice(createMetalDevice(layer.windowHandle, layer.transparency, numberOfBuffers, adapter.ptr, it))
+        }
+        _device = initDevice
+        contextHandler = MetalContextHandler(layer, initDevice, adapter)
+        setDisplaySyncEnabled(initDevice.ptr, properties.isVsyncEnabled)
     }
+
+    override val renderInfo: String get() = contextHandler.rendererInfo()
 
     private val frameDispatcher = FrameDispatcher(MainUIDispatcher) {
         if (layer.isShowing) {
@@ -56,10 +89,18 @@ internal class MetalRedrawer(
         onContextInit()
     }
 
+    fun drawSync() {
+        layer.update(System.nanoTime())
+        performDraw()
+    }
+
     override fun dispose() = synchronized(drawLock) {
         frameDispatcher.cancel()
         contextHandler.dispose()
-        disposeDevice(device)
+        disposeDevice(device.ptr)
+        adapter.dispose()
+        displayLinkThrottler.dispose()
+        _device = null
         super.dispose()
     }
 
@@ -71,10 +112,10 @@ internal class MetalRedrawer(
     override fun redrawImmediately() {
         check(!isDisposed) { "MetalRedrawer is disposed" }
         inDrawScope {
-            setVSyncEnabled(device, enabled = false)
             update(System.nanoTime())
-            performDraw()
-            setVSyncEnabled(device, properties.isVsyncEnabled)
+            if (!isDisposed) { // Redrawer may be disposed in user code, during `update`
+                performDraw(waitVsync = SkikoProperties.macOSWaitForPreviousFrameVsyncOnRedrawImmediately)
+            }
         }
     }
 
@@ -91,66 +132,73 @@ internal class MetalRedrawer(
         // Executors.newSingleThreadExecutor().asCoroutineDispatcher(): 50 FPS, 150% CPU
         // Dispatchers.IO: 50 FPS, 200% CPU
         inDrawScope {
-            withContext(Dispatchers.IO) {
+            withContext(dispatcherToBlockOn) {
                 performDraw()
             }
         }
         if (isDisposed) throw CancellationException()
 
         // When window is not visible - it doesn't make sense to redraw fast to avoid battery drain.
-        // In theory, we could be more precise, and just suspend rendering in
-        // `NSWindowDidChangeOcclusionStateNotification`, but current approach seems to work as well in practise.
-        if (isOccluded(windowHandle))
-            delay(300)
-    }
-
-    private fun performDraw() = synchronized(drawLock) {
-        if (!isDisposed) {
-            val handle = startRendering()
-            try {
-                contextHandler.draw()
-            } finally {
-                endRendering(handle)
+        if (isWindowOccluded) {
+            withTimeoutOrNull(300) {
+                // If the window becomes non-occluded, stop waiting immediately
+                @Suppress("ControlFlowWithEmptyBody")
+                while (windowOcclusionStateChannel.receive()) { }
             }
         }
     }
 
-    override fun syncSize() = synchronized(drawLock) {
-        check(isEventDispatchThread()) { "Method should be called from AWT event dispatch thread" }
-        val rootPane = getRootPane(layer)
-        val globalPosition = convertPoint(layer, layer.x, layer.y, rootPane)
-        setContentScale(device, layer.contentScale)
-        resizeLayers(
-            device,
-            globalPosition.x,
-            rootPane.height - globalPosition.y - layer.height,
-            layer.width.coerceAtLeast(0),
-            layer.height.coerceAtLeast(0)
-        )
+    // Called from MetalRedrawer.mm
+    @Suppress("unused")
+    fun onOcclusionStateChanged(isOccluded: Boolean) {
+        isWindowOccluded = isOccluded
+        windowOcclusionStateChannel.trySend(isOccluded)
     }
 
-    fun makeContext() = DirectContext(
-        makeMetalContext(device)
-    )
+    private fun performDraw(waitVsync: Boolean = true) = synchronized(drawLock) {
+        if (!isDisposed) {
+            if (waitVsync) {
+                // Wait for vsync because:
+                // - macOS drops the second/next drawables if they are sent in the same vsync
+                // - it makes frames consistent and limits FPS
+                displayLinkThrottler.waitVSync()
+            }
+            autoreleasepool {
+                contextHandler.draw()
+            }
+        }
+    }
 
-    fun makeRenderTarget(width: Int, height: Int) = BackendRenderTarget(
-        makeMetalRenderTarget(device, width, height)
-    )
+    override fun syncBounds() = synchronized(drawLock) {
+        check(isEventDispatchThread()) { "Method should be called from AWT event dispatch thread" }
+        val rootPane = getRootPane(layer)
+        val globalPosition = convertPoint(layer.backedLayer, 0, 0, rootPane)
+        setContentScale(device.ptr, layer.contentScale)
+        val x = globalPosition.x
+        val y = rootPane.height - globalPosition.y - layer.height
+        val width = layer.backedLayer.width.coerceAtLeast(0)
+        val height = layer.backedLayer.height.coerceAtLeast(0)
+        Logger.debug { "MetalRedrawer#resizeLayers $this {x: $x y: $y width: $width height: $height} rootPane: ${rootPane.size}" }
+        resizeLayers(device.ptr, x, y, width, height)
+    }
 
-    fun finishFrame() = finishFrame(device)
+    override fun setVisible(isVisible: Boolean) {
+        Logger.debug { "MetalRedrawer#setVisible $this $isVisible" }
+        setLayerVisible(device.ptr, isVisible)
+    }
 
-    private external fun chooseAdapter(adapterPriority: Int): Long
-    private external fun createMetalDevice(window:Long, transparency: Boolean, adapter: Long, platformInfo: Long): Long
-    private external fun makeMetalContext(device: Long): Long
-    private external fun makeMetalRenderTarget(device: Long, width: Int, height: Int): Long
+    private external fun createMetalDevice(window: Long, transparency: Boolean, frameBuffering: Int, adapter: Long, platformInfo: Long): Long
     private external fun disposeDevice(device: Long)
-    private external fun finishFrame(device: Long)
     private external fun resizeLayers(device: Long, x: Int, y: Int, width: Int, height: Int)
+    private external fun setLayerVisible(device: Long, isVisible: Boolean)
     private external fun setContentScale(device: Long, contentScale: Float)
-    private external fun setVSyncEnabled(device: Long, enabled: Boolean)
-    private external fun isOccluded(window: Long): Boolean
-    private external fun getAdapterName(adapter: Long): String
-    private external fun getAdapterMemorySize(adapter: Long): Long
-    private external fun startRendering(): Long
-    private external fun endRendering(handle: Long)
+
+    /**
+     * Set this value to true to synchronize the presentation of the layer’s contents with the display’s refresh,
+     * also known as vsync or vertical sync. If false, the layer presents new content more quickly,
+     * but possibly with brief visual artifacts (screen tearing).
+     *
+     * @note see https://developer.apple.com/documentation/quartzcore/cametallayer/2887087-displaysyncenabled
+     */
+    private external fun setDisplaySyncEnabled(device: Long, enabled: Boolean)
 }

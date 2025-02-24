@@ -4,6 +4,7 @@ import org.jetbrains.skia.impl.Library.Companion.staticLoad
 import org.jetbrains.skia.impl.Stats
 import org.jetbrains.skia.impl.NativePointer
 import org.jetbrains.skia.impl.getPtr
+import org.jetbrains.skia.impl.reachabilityBarrier
 
 object ShadowUtils {
     /**
@@ -39,20 +40,25 @@ object ShadowUtils {
         var flags = 0
         if (transparentOccluder) flags = flags or 1
         if (geometricOnly) flags = flags or 2
-        _nDrawShadow(
-            getPtr(canvas),
-            getPtr(path),
-            zPlaneParams.x,
-            zPlaneParams.y,
-            zPlaneParams.z,
-            lightPos.x,
-            lightPos.y,
-            lightPos.z,
-            lightRadius,
-            ambientColor,
-            spotColor,
-            flags
-        )
+        try {
+            _nDrawShadow(
+                getPtr(canvas),
+                getPtr(path),
+                zPlaneParams.x,
+                zPlaneParams.y,
+                zPlaneParams.z,
+                lightPos.x,
+                lightPos.y,
+                lightPos.z,
+                lightRadius,
+                ambientColor,
+                spotColor,
+                flags
+            )
+        } finally {
+            reachabilityBarrier(canvas)
+            reachabilityBarrier(path)
+        }
     }
 
     /**
@@ -86,6 +92,7 @@ object ShadowUtils {
 
 
 @ExternalSymbolName("org_jetbrains_skia_ShadowUtils__1nDrawShadow")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_ShadowUtils__1nDrawShadow")
 private external fun _nDrawShadow(
     canvasPtr: NativePointer,
     pathPtr: NativePointer,
@@ -103,7 +110,9 @@ private external fun _nDrawShadow(
 
 
 @ExternalSymbolName("org_jetbrains_skia_ShadowUtils__1nComputeTonalAmbientColor")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_ShadowUtils__1nComputeTonalAmbientColor")
 private external fun _nComputeTonalAmbientColor(ambientColor: Int, spotColor: Int): Int
 
 @ExternalSymbolName("org_jetbrains_skia_ShadowUtils__1nComputeTonalSpotColor")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_ShadowUtils__1nComputeTonalSpotColor")
 private external fun _nComputeTonalSpotColor(ambientColor: Int, spotColor: Int): Int

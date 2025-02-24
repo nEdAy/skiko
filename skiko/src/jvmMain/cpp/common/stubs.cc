@@ -15,12 +15,6 @@ void skikoUnimplemented(const char* message) {
 // we put here stubs for all OS specific native methods.
 
 #ifndef SK_BUILD_FOR_LINUX
-JNIEXPORT jfloat JNICALL Java_org_jetbrains_skiko_PlatformOperationsKt_linuxGetDpiScaleNative(
-    JNIEnv *env, jobject properties, jlong platformInfoPtr) {
-    skikoUnimplemented("Java_org_jetbrains_skiko_PlatformOperationsKt_linuxGetDpiScaleNative");
-    return 0;
-}
-
 JNIEXPORT jfloat JNICALL Java_org_jetbrains_skiko_SetupKt_linuxGetSystemDpiScale(JNIEnv *env, jobject layer) {
     skikoUnimplemented("Java_org_jetbrains_skiko_SetupKt_linuxGetSystemDpiScale");
     return 0;
@@ -65,6 +59,11 @@ JNIEXPORT void JNICALL Java_org_jetbrains_skiko_context_Direct3DContextHandler_f
     skikoUnimplemented("Java_org_jetbrains_skiko_context_Direct3DContextHandler_flush");
 }
 
+JNIEXPORT jlong JNICALL Java_org_jetbrains_skiko_redrawer_Direct3DRedrawer_chooseAdapter(JNIEnv *env, jobject redrawer, jint adapterPriority) {
+    skikoUnimplemented("Java_org_jetbrains_skiko_redrawer_Direct3DRedrawer_chooseAdapter");
+    return 0;
+}
+
 JNIEXPORT jlong JNICALL Java_org_jetbrains_skiko_redrawer_Direct3DRedrawer_createDirectXDevice(
         JNIEnv *env, jobject redrawer, jint adapterPriority, jlong contentHandle, jboolean transparency) {
     skikoUnimplemented("Java_org_jetbrains_skiko_redrawer_Direct3DRedrawer_createDirectXDevice");
@@ -79,6 +78,38 @@ JNIEXPORT void JNICALL Java_org_jetbrains_skiko_redrawer_Direct3DRedrawer_initSw
 JNIEXPORT void JNICALL Java_org_jetbrains_skiko_redrawer_Direct3DRedrawer_initFence(
         JNIEnv *env, jobject redrawer, jlong devicePtr) {
     skikoUnimplemented("Java_org_jetbrains_skiko_redrawer_Direct3DRedrawer_initFence");
+}
+
+JNIEXPORT jlong JNICALL Java_org_jetbrains_skiko_windows_JumpListBuilder_jumpList_1init(JNIEnv *env, jobject obj) {
+    skikoUnimplemented("Java_org_jetbrains_skiko_windows_JumpListBuilder_jumpList_1init");
+    return 0;
+}
+
+JNIEXPORT void JNICALL Java_org_jetbrains_skiko_windows_JumpListBuilder_jumpList_1dispose(JNIEnv *env, jobject obj, jlong ptr) {
+    skikoUnimplemented("Java_org_jetbrains_skiko_windows_JumpListBuilder_jumpList_1dispose");
+}
+
+JNIEXPORT void JNICALL Java_org_jetbrains_skiko_windows_JumpListBuilder_jumpList_1setAppID(JNIEnv *env, jobject obj, jlong ptr, jstring appID) {
+    skikoUnimplemented("Java_org_jetbrains_skiko_windows_JumpListBuilder_jumpList_1setAppID");
+}
+
+JNIEXPORT jobjectArray JNICALL Java_org_jetbrains_skiko_windows_JumpListBuilder_jumpList_1beginList(JNIEnv *env, jobject obj, jlong ptr) {
+    skikoUnimplemented("Java_org_jetbrains_skiko_windows_JumpListBuilder_jumpList_1beginList");
+    return 0;
+}
+
+JNIEXPORT void JNICALL Java_org_jetbrains_skiko_windows_JumpListBuilder_jumpList_1addUserTasks(
+        JNIEnv *env, jobject obj, jlong ptr, jobjectArray tasks) {
+    skikoUnimplemented("Java_org_jetbrains_skiko_windows_JumpListBuilder_jumpList_1addUserTasks");
+}
+
+JNIEXPORT void JNICALL Java_org_jetbrains_skiko_windows_JumpListBuilder_jumpList_1addCategory(
+        JNIEnv *env, jobject obj, jlong ptr, jstring category, jobjectArray itemsArray) {
+    skikoUnimplemented("Java_org_jetbrains_skiko_windows_JumpListBuilder_jumpList_1addCategory");
+}
+
+JNIEXPORT void JNICALL Java_org_jetbrains_skiko_windows_JumpListBuilder_jumpList_1commit(JNIEnv *env, jobject obj, jlong ptr) {
+    skikoUnimplemented("Java_org_jetbrains_skiko_windows_JumpListBuilder_jumpList_1commit");
 }
 #endif
 
@@ -136,6 +167,12 @@ JNIEXPORT void JNICALL Java_org_jetbrains_skiko_redrawer_MetalRedrawer_resizeLay
     JNIEnv *env, jobject redrawer, jlong devicePtr, jint x, jint y, jint width, jint height)
 {
     skikoUnimplemented("Java_org_jetbrains_skiko_redrawer_MetalRedrawer_resizeLayers");
+}
+
+JNIEXPORT void JNICALL Java_org_jetbrains_skiko_redrawer_MetalRedrawer_setLayerVisible(
+    JNIEnv *env, jobject redrawer, jlong devicePtr, jboolean isVisible)
+{
+    skikoUnimplemented("Java_org_jetbrains_skiko_redrawer_MetalRedrawer_setLayerVisible");
 }
 
 JNIEXPORT void JNICALL Java_org_jetbrains_skiko_redrawer_MetalRedrawer_setContentScale(JNIEnv *env, jobject obj, jlong devicePtr, jfloat contentScale)

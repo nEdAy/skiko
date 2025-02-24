@@ -19,7 +19,7 @@ repositories {
 
 plugins {
     id("com.android.application")  version "7.0.2"
-    kotlin("android") version "1.6.10"
+    kotlin("android") version "1.8.0"
 }
 
 val skikoNativeX64 by configurations.creating
@@ -87,4 +87,9 @@ dependencies {
 tasks.withType<org.jetbrains.kotlin.gradle.dsl.KotlinJvmCompile>().configureEach {
     dependsOn(unzipTaskX64)
     dependsOn(unzipTaskArm64)
+}
+
+tasks.withType<Copy> {
+    // This line needs to properly merge MANIFEST files from jars into dex
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }

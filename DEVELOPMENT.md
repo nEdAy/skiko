@@ -1,6 +1,26 @@
-## Building JVM bindings
+### Building JVM bindings
 
-* Set JAVA_HOME to location of JDK, at least version 11
+* Prepare the system
+  * `macOs` Install Xcode Command Line Tools
+  * `Linux` Install these tools:
+    ```
+    sudo apt-get install ninja-build fontconfig libfontconfig1-dev libglu1-mesa-dev libxrandr-dev libdbus-1-dev zip libx11-dev
+    ```
+  * `Windows`
+    1. Download [Visual Studio Build Tools 2019](https://learn.microsoft.com/en-us/visualstudio/releases/2019/history) (search "BuildTools" on the page).
+    2. During the installation, select "Desktop development with C++"
+    3. Add an environment variable SKIKO_VSBT_PATH=C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools
+       ```
+       Control Panel|All Control Panel Items|System|Advanced system settings|Environment variables
+       ```
+       or by running `cmd` as administrator:
+       ```
+       setx /M SKIKO_VSBT_PATH "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools"
+       ```
+    4. Skiko is built using Clang-cl. Clang-cl is a part of LLVM and can be downloaded from the [LLVM project's website](https://releases.llvm.org/). Please also make sure that Clang-cl.exe is available in %PATH%.
+
+* Install Emscripten
+* Set `JAVA_HOME` to location of JDK, at least version 11
 * `./gradlew :skiko:publishToMavenLocal` will build the artifact and publish it to local Maven repo
 
 To build with debug symbols and debug Skia build use `-Pskiko.debug=true` Gradle argument.
@@ -11,28 +31,6 @@ Gradle build downloads the necessary version of Skia by default.
 However, if downloaded sources are modified, changes are discarded (Gradle
 re-evaluates tasks, when outputs are changed).
 To use custom version of the dependencies, specify `SKIA_DIR` environment variable.
-
-#### Building on Windows
-
-##### Using Visual Studio C++
-* Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) or
-  [Visual Studio C++](https://visualstudio.microsoft.com/vs/features/cplusplus/).
-* If Gradle fails to find Visual C++ toolchain:
-```
-Execution failed for task ':compileDebugWindowsCpp'.
-> No tool chain is available to build C++ for host operating system 'Windows 10' architecture 'x86-64':
-    - Tool chain 'visualCpp' (Visual Studio):
-        - Could not locate a Visual Studio installation, using the command line tool, Windows registry or system path.
-```
-set `SKIKO_VSBT_PATH` environment variable to the location of installed Visual Studio Build Tools.
-This could be done in the UI:
-```
-Control Panel|All Control Panel Items|System|Advanced system settings|Environment variables
-```
-or by running `cmd` as administrator:
-```
-setx /M SKIKO_VSBT_PATH "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools"
-```
 
 #### Running UI tests
 Add `-Dskiko.test.ui.enabled=true` to enable UI tests (integration tests, which run in the native window). Each UI test will be run on every available Graphics API of the current target.

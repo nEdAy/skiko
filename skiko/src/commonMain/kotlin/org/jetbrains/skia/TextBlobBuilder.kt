@@ -91,6 +91,7 @@ class TextBlobBuilder internal constructor(ptr: NativePointer) : Managed(ptr, _F
             }
             this
         } finally {
+            reachabilityBarrier(this)
             reachabilityBarrier(font)
         }
     }
@@ -143,6 +144,7 @@ class TextBlobBuilder internal constructor(ptr: NativePointer) : Managed(ptr, _F
             }
             this
         } finally {
+            reachabilityBarrier(this)
             reachabilityBarrier(font)
         }
     }
@@ -191,6 +193,7 @@ class TextBlobBuilder internal constructor(ptr: NativePointer) : Managed(ptr, _F
             }
             this
         } finally {
+            reachabilityBarrier(this)
             reachabilityBarrier(font)
         }
     }
@@ -217,6 +220,7 @@ class TextBlobBuilder internal constructor(ptr: NativePointer) : Managed(ptr, _F
             }
             this
         } finally {
+            reachabilityBarrier(this)
             reachabilityBarrier(font)
         }
     }
@@ -228,15 +232,19 @@ class TextBlobBuilder internal constructor(ptr: NativePointer) : Managed(ptr, _F
 
 
 @ExternalSymbolName("org_jetbrains_skia_TextBlobBuilder__1nGetFinalizer")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_TextBlobBuilder__1nGetFinalizer")
 private external fun TextBlobBuilder_nGetFinalizer(): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_TextBlobBuilder__1nMake")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_TextBlobBuilder__1nMake")
 private external fun TextBlobBuilder_nMake(): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_TextBlobBuilder__1nBuild")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_TextBlobBuilder__1nBuild")
 private external fun _nBuild(ptr: NativePointer): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_TextBlobBuilder__1nAppendRun")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_TextBlobBuilder__1nAppendRun")
 private external fun _nAppendRun(
     ptr: NativePointer, fontPtr: NativePointer,
     glyphs: InteropPointer, glyphsLen: Int,
@@ -245,6 +253,7 @@ private external fun _nAppendRun(
 )
 
 @ExternalSymbolName("org_jetbrains_skia_TextBlobBuilder__1nAppendRunPosH")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_TextBlobBuilder__1nAppendRunPosH")
 private external fun _nAppendRunPosH(
     ptr: NativePointer,
     fontPtr: NativePointer,
@@ -257,6 +266,7 @@ private external fun _nAppendRunPosH(
 
 
 @ExternalSymbolName("org_jetbrains_skia_TextBlobBuilder__1nAppendRunPos")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_TextBlobBuilder__1nAppendRunPos")
 private external fun _nAppendRunPos(
     ptr: NativePointer, fontPtr: NativePointer,
     glyphs: InteropPointer, glyphsLen: Int,
@@ -265,6 +275,7 @@ private external fun _nAppendRunPos(
 )
 
 @ExternalSymbolName("org_jetbrains_skia_TextBlobBuilder__1nAppendRunRSXform")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_TextBlobBuilder__1nAppendRunRSXform")
 private external fun _nAppendRunRSXform(
     ptr: NativePointer, fontPtr: NativePointer,
     glyphs: InteropPointer, glyphsLen: Int,

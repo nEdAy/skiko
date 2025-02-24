@@ -1,5 +1,6 @@
 package org.jetbrains.skia.paragraph
 
+import org.jetbrains.skia.ModuleImport
 import org.jetbrains.skia.impl.Library.Companion.staticLoad
 import org.jetbrains.skia.Typeface
 import org.jetbrains.skia.FontMgr
@@ -11,14 +12,19 @@ import org.jetbrains.skia.impl.NativePointer
 import org.jetbrains.skia.impl.getPtr
 import org.jetbrains.skia.impl.interopScope
 
-class TypefaceFontProvider : FontMgr(TypefaceFontProvider_nMake()) {
+open class TypefaceFontProvider internal constructor(
+    ptr: NativePointer
+) : FontMgr(ptr) {
+
+    constructor(): this(TypefaceFontProvider_nMake())
+
     companion object {
         init {
             staticLoad()
         }
     }
 
-    fun registerTypeface(typeface: Typeface?, alias: String? = null): TypefaceFontProvider {
+    open fun registerTypeface(typeface: Typeface?, alias: String? = null): TypefaceFontProvider {
         return try {
             Stats.onNativeCall()
             interopScope {
@@ -30,6 +36,7 @@ class TypefaceFontProvider : FontMgr(TypefaceFontProvider_nMake()) {
             }
             this
         } finally {
+            reachabilityBarrier(this)
             reachabilityBarrier(typeface)
         }
     }
@@ -41,7 +48,9 @@ class TypefaceFontProvider : FontMgr(TypefaceFontProvider_nMake()) {
 
 
 @ExternalSymbolName("org_jetbrains_skia_paragraph_TypefaceFontProvider__1nMake")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_paragraph_TypefaceFontProvider__1nMake")
 private external fun TypefaceFontProvider_nMake(): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_paragraph_TypefaceFontProvider__1nRegisterTypeface")
-private external fun _nRegisterTypeface(ptr: NativePointer, typefacePtr: NativePointer, alias: InteropPointer): NativePointer
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_paragraph_TypefaceFontProvider__1nRegisterTypeface")
+private external fun _nRegisterTypeface(ptr: NativePointer, typefacePtr: NativePointer, alias: InteropPointer): Int

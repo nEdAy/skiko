@@ -29,18 +29,6 @@ extern "C" JNIEXPORT jlong JNICALL Java_org_jetbrains_skia_BreakIteratorKt__1nMa
       return reinterpret_cast<jlong>(instance);
 }
 
-extern "C" JNIEXPORT jint JNICALL Java_org_jetbrains_skia_BreakIteratorKt__1nClone
-  (JNIEnv* env, jclass jclass, jlong ptr, jintArray errorCode) {
-    UBreakIterator* instance = reinterpret_cast<UBreakIterator*>(static_cast<uintptr_t>(ptr));
-    UErrorCode status = U_ZERO_ERROR;
-    UBreakIterator* clone = ubrk_clone(instance, &status);
-    if (U_FAILURE(status)) {
-      env->ThrowNew(java::lang::RuntimeException::cls, u_errorName(status));
-      return 0;
-    } else
-      return reinterpret_cast<jlong>(clone);
-}
-
 extern "C" JNIEXPORT jint JNICALL Java_org_jetbrains_skia_BreakIteratorKt__1nCurrent
   (JNIEnv* env, jclass jclass, jlong ptr) {
     UBreakIterator* instance = reinterpret_cast<UBreakIterator*>(static_cast<uintptr_t>(ptr));
@@ -95,18 +83,25 @@ extern "C" JNIEXPORT jint JNICALL Java_org_jetbrains_skia_BreakIteratorKt__1nGet
     return ubrk_getRuleStatus(instance);
 }
 
-extern "C" JNIEXPORT jintArray JNICALL Java_org_jetbrains_skia_BreakIteratorKt__1nGetRuleStatuses
+extern "C" JNIEXPORT jint JNICALL Java_org_jetbrains_skia_BreakIteratorKt__1nGetRuleStatusesLen
   (JNIEnv* env, jclass jclass, jlong ptr) {
     UBreakIterator* instance = reinterpret_cast<UBreakIterator*>(static_cast<uintptr_t>(ptr));
     UErrorCode status = U_ZERO_ERROR;
     int32_t len = ubrk_getRuleStatusVec(instance, nullptr, 0, &status);
+    if (status != U_BUFFER_OVERFLOW_ERROR && U_FAILURE(status))
+      env->ThrowNew(java::lang::RuntimeException::cls, u_errorName(status));
+    return len;
+}
+
+extern "C" JNIEXPORT void JNICALL Java_org_jetbrains_skia_BreakIteratorKt__1nGetRuleStatuses
+  (JNIEnv* env, jclass jclass, jlong ptr, jintArray result, jint len) {
+    UBreakIterator* instance = reinterpret_cast<UBreakIterator*>(static_cast<uintptr_t>(ptr));
+    UErrorCode status = U_ZERO_ERROR;
+    std::vector<jint> statuses(len);
+    ubrk_getRuleStatusVec(instance, reinterpret_cast<int32_t*>(statuses.data()), len, &status);
     if (U_FAILURE(status))
       env->ThrowNew(java::lang::RuntimeException::cls, u_errorName(status));
-    std::vector<jint> vec(len);
-    ubrk_getRuleStatusVec(instance, reinterpret_cast<int32_t*>(vec.data()), len, &status);
-    if (U_FAILURE(status))
-      env->ThrowNew(java::lang::RuntimeException::cls, u_errorName(status));
-    return javaIntArray(env, vec);
+    env->SetIntArrayRegion(result, 0, len, statuses.data());
 }
 
 extern "C" JNIEXPORT jlong JNICALL Java_org_jetbrains_skia_BreakIteratorKt__1nSetText

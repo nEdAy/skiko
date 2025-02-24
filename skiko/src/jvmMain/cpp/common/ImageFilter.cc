@@ -1,5 +1,6 @@
 #include <iostream>
 #include <jni.h>
+#include "SkSamplingOptions.h"
 #include "interop.hh"
 #include "SkColorFilter.h"
 #include "SkImageFilter.h"
@@ -7,15 +8,6 @@
 #include "SkPoint3.h"
 #include "SkRect.h"
 #include "interop.hh"
-
-extern "C" JNIEXPORT jlong JNICALL Java_org_jetbrains_skia_ImageFilterKt__1nMakeAlphaThreshold
-  (JNIEnv* env, jclass jclass, jlong regionPtr, jfloat innerMin, jfloat outerMax, jlong inputPtr, jintArray cropInts) {
-    SkRegion* region = reinterpret_cast<SkRegion*>(static_cast<uintptr_t>(regionPtr));
-    SkImageFilter* input = reinterpret_cast<SkImageFilter*>(static_cast<uintptr_t>(inputPtr));
-    std::unique_ptr<SkIRect> crop = skija::IRect::toSkIRect(env, cropInts);
-    SkImageFilter* ptr = SkImageFilters::AlphaThreshold(*region, innerMin, outerMax, sk_ref_sp(input), crop.get()).release();
-    return reinterpret_cast<jlong>(ptr);
-}
 
 extern "C" JNIEXPORT jlong JNICALL Java_org_jetbrains_skia_ImageFilterKt__1nMakeArithmetic
   (JNIEnv* env, jclass jclass, jfloat k1, jfloat k2, jfloat k3, jfloat k4, jboolean enforcePMColor, jlong bgPtr, jlong fgPtr, jintArray cropInts) {
@@ -97,10 +89,11 @@ extern "C" JNIEXPORT jlong JNICALL Java_org_jetbrains_skia_ImageFilterKt__1nMake
 }
 
 extern "C" JNIEXPORT jlong JNICALL Java_org_jetbrains_skia_ImageFilterKt__1nMakeMagnifier
-  (JNIEnv* env, jclass jclass, jfloat l, jfloat t, jfloat r, jfloat b, jfloat inset, jlong inputPtr, jintArray cropInts) {
+  (JNIEnv* env, jclass jclass, jfloat l, jfloat t, jfloat r, jfloat b, jfloat zoomAmount, jfloat inset, jint samplingModeVal1, jint samplingModeVal2, jlong inputPtr, jintArray cropInts) {
     SkImageFilter* input = reinterpret_cast<SkImageFilter*>(static_cast<uintptr_t>(inputPtr));
     std::unique_ptr<SkIRect> crop = skija::IRect::toSkIRect(env, cropInts);
-    SkImageFilter* ptr = SkImageFilters::Magnifier(SkRect{l, t, r, b}, inset, sk_ref_sp(input), crop.get()).release();
+    SkSamplingOptions sampling = skija::SamplingMode::unpackFrom2Ints(env, samplingModeVal1, samplingModeVal2);
+    SkImageFilter* ptr = SkImageFilters::Magnifier(SkRect{l, t, r, b}, zoomAmount, inset, sampling, sk_ref_sp(input), crop.get()).release();
     return reinterpret_cast<jlong>(ptr);
 }
 
@@ -145,11 +138,12 @@ extern "C" JNIEXPORT jlong JNICALL Java_org_jetbrains_skia_ImageFilterKt__1nMake
     return reinterpret_cast<jlong>(ptr);
 }
 
-extern "C" JNIEXPORT jlong JNICALL Java_org_jetbrains_skia_ImageFilterKt__1nMakePaint
-  (JNIEnv* env, jclass jclass, jlong paintPtr, jintArray cropInts) {
-    SkPaint* paint = reinterpret_cast<SkPaint*>(static_cast<uintptr_t>(paintPtr));
+extern "C" JNIEXPORT jlong JNICALL Java_org_jetbrains_skia_ImageFilterKt__1nMakeShader
+  (JNIEnv* env, jclass jclass, jlong shaderPtr, jboolean ditherBoolean, jintArray cropInts) {
+    SkShader* shader = reinterpret_cast<SkShader*>(static_cast<uintptr_t>(shaderPtr));
     std::unique_ptr<SkIRect> crop = skija::IRect::toSkIRect(env, cropInts);
-    SkImageFilter* ptr = SkImageFilters::Paint(*paint, crop.get()).release();
+    SkImageFilters::Dither dither = ditherBoolean ? SkImageFilters::Dither::kYes : SkImageFilters::Dither::kNo;
+    SkImageFilter* ptr = SkImageFilters::Shader(sk_ref_sp(shader), dither, crop.get()).release();
     return reinterpret_cast<jlong>(ptr);
 }
 
@@ -162,7 +156,7 @@ extern "C" JNIEXPORT jlong JNICALL Java_org_jetbrains_skia_ImageFilterKt__1nMake
 
 extern "C" JNIEXPORT jlong JNICALL Java_org_jetbrains_skia_ImageFilterKt__1nMakeRuntimeShader
   (JNIEnv* env, jclass jclass, jlong runtimeShaderBuilderPtr, jstring childShaderName, jlong inputPtr) {
-    SkRuntimeShaderBuilder* runtimeShaderBuilder = reinterpret_cast<SkRuntimeShaderBuilder*>(static_cast<uintptr_t>(runtimeShaderBuilderPtr));
+    SkRuntimeEffectBuilder* runtimeShaderBuilder = reinterpret_cast<SkRuntimeEffectBuilder*>(static_cast<uintptr_t>(runtimeShaderBuilderPtr));
     SkImageFilter* input = reinterpret_cast<SkImageFilter*>(static_cast<uintptr_t>(inputPtr));
 
     SkImageFilter* ptr = SkImageFilters::RuntimeShader(*runtimeShaderBuilder, skString(env, childShaderName).c_str(), sk_ref_sp(input)).release();
@@ -171,7 +165,7 @@ extern "C" JNIEXPORT jlong JNICALL Java_org_jetbrains_skia_ImageFilterKt__1nMake
 
 extern "C" JNIEXPORT jlong JNICALL Java_org_jetbrains_skia_ImageFilterKt__1nMakeRuntimeShaderFromArray
   (JNIEnv* env, jclass jclass, jlong runtimeShaderBuilderPtr, jobjectArray childShaderNamesArr, jlongArray inputPtrsArray, jint _inputCount) {
-    SkRuntimeShaderBuilder* runtimeShaderBuilder = reinterpret_cast<SkRuntimeShaderBuilder*>(static_cast<uintptr_t>(runtimeShaderBuilderPtr));
+    SkRuntimeEffectBuilder* runtimeShaderBuilder = reinterpret_cast<SkRuntimeEffectBuilder*>(static_cast<uintptr_t>(runtimeShaderBuilderPtr));
 
     jsize inputCount = env->GetArrayLength(inputPtrsArray);
     jlong* inputPtrs = env->GetLongArrayElements(inputPtrsArray, 0);

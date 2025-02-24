@@ -1,12 +1,16 @@
 package org.jetbrains.skiko
 
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import org.jetbrains.skia.*
-import org.jetbrains.skia.Canvas
 import org.jetbrains.skiko.redrawer.Redrawer
+import org.jetbrains.skiko.redrawer.RedrawerManager
 import java.awt.Color
 import java.awt.Component
-import java.awt.Window
+import java.awt.Point
 import java.awt.event.*
+import java.awt.geom.AffineTransform
 import java.awt.im.InputMethodRequests
 import java.util.concurrent.CancellationException
 import javax.accessibility.Accessible
@@ -15,6 +19,9 @@ import javax.swing.JPanel
 import javax.swing.SwingUtilities
 import javax.swing.SwingUtilities.isEventDispatchThread
 import javax.swing.UIManager
+import javax.swing.event.AncestorEvent
+import javax.swing.event.AncestorListener
+import kotlin.math.floor
 
 actual open class SkiaLayer internal constructor(
     externalAccessibleFactory: ((Component) -> Accessible)? = null,
@@ -53,6 +60,7 @@ actual open class SkiaLayer internal constructor(
         externalAccessibleFactory: ((Component) -> Accessible)? = null,
         isVsyncEnabled: Boolean = SkikoProperties.vsyncEnabled,
         isVsyncFramelimitFallbackEnabled: Boolean = SkikoProperties.vsyncFramelimitFallbackEnabled,
+        frameBuffering: FrameBuffering = SkikoProperties.frameBuffering,
         renderApi: GraphicsApi = SkikoProperties.renderApi,
         analytics: SkiaLayerAnalytics = SkiaLayerAnalytics.Empty,
         pixelGeometry: PixelGeometry = PixelGeometry.UNKNOWN,
@@ -61,8 +69,22 @@ actual open class SkiaLayer internal constructor(
         SkiaLayerProperties(
             isVsyncEnabled,
             isVsyncFramelimitFallbackEnabled,
+            frameBuffering,
             renderApi
         ),
+        RenderFactory.Default,
+        analytics,
+        pixelGeometry
+    )
+
+    constructor(
+        externalAccessibleFactory: ((Component) -> Accessible)? = null,
+        properties: SkiaLayerProperties,
+        analytics: SkiaLayerAnalytics = SkiaLayerAnalytics.Empty,
+        pixelGeometry: PixelGeometry = PixelGeometry.UNKNOWN,
+    ) : this(
+        externalAccessibleFactory,
+        properties,
         RenderFactory.Default,
         analytics,
         pixelGeometry
@@ -71,11 +93,17 @@ actual open class SkiaLayer internal constructor(
     val canvas: java.awt.Canvas
         get() = backedLayer
 
+    private var peerBufferSizeFixJob: Job? = null
+    private var latestReceivedGraphicsContextScaleTransform: AffineTransform? = null
+
     init {
         isOpaque = false
         layout = null
         backedLayer = object : HardwareLayer(externalAccessibleFactory) {
             override fun paint(g: java.awt.Graphics) {
+                Logger.debug { "Paint called on $this" }
+                checkContentScale()
+
                 // 1. JPanel.paint is not always called (in rare cases).
                 //    For example if we call 'jframe.isResizable = false` on Ubuntu
                 //
@@ -83,7 +111,6 @@ actual open class SkiaLayer internal constructor(
                 //    For example, on macOs when we resize window or change DPI
                 //
                 // 3. to avoid double paint in one single frame, use needRedraw instead of redrawImmediately
-                this@SkiaLayer.checkContentScale()
                 redrawer?.needRedraw()
             }
 
@@ -109,9 +136,59 @@ actual open class SkiaLayer internal constructor(
         }
         @Suppress("LeakingThis")
         add(backedLayer)
+
+        addAncestorListener(object : AncestorListener {
+
+            private var positionInWindow: Point? = null
+
+            private val zeroPoint = Point(0, 0)
+
+            private fun computePositionInWindow(): Point? {
+                val window = SwingUtilities.getWindowAncestor(this@SkiaLayer)
+                return if (window == null) {
+                    null
+                } else {
+                    SwingUtilities.convertPoint(this@SkiaLayer, zeroPoint, window)
+                }
+            }
+
+            override fun ancestorAdded(event: AncestorEvent?) {
+                positionInWindow = computePositionInWindow()
+            }
+
+            override fun ancestorRemoved(event: AncestorEvent?) {
+                positionInWindow = null
+            }
+
+            override fun ancestorMoved(event: AncestorEvent?) {
+                val newPosition = computePositionInWindow()
+                if ((positionInWindow != null) && (positionInWindow != newPosition)) {
+                    revalidate()
+                }
+                positionInWindow = newPosition
+            }
+        })
+
         backedLayer.addHierarchyListener {
             if (it.changeFlags and HierarchyEvent.SHOWING_CHANGED.toLong() != 0L) {
                 checkShowing()
+            }
+        }
+
+
+        addPropertyChangeListener("graphicsContextScaleTransform") {
+            Logger.debug { "graphicsContextScaleTransform changed for $this" }
+            latestReceivedGraphicsContextScaleTransform = it.newValue as AffineTransform
+            revalidate()
+            notifyChange(PropertyKind.ContentScale)
+
+            // Workaround for JBR-5259
+            if (hostOs == OS.Windows) {
+                peerBufferSizeFixJob?.cancel()
+                peerBufferSizeFixJob = GlobalScope.launch(MainUIDispatcher) {
+                    backedLayer.setLocation(1, 0)
+                    backedLayer.setLocation(0, 0)
+                }
             }
         }
     }
@@ -119,21 +196,21 @@ actual open class SkiaLayer internal constructor(
     private var fullscreenAdapter = FullscreenAdapter(backedLayer)
 
     override fun removeNotify() {
-        val window = SwingUtilities.getRoot(this) as Window
+        Logger.debug { "SkiaLayer.awt#removeNotify $this" }
+        val window = SwingUtilities.getWindowAncestor(this)
         window.removeComponentListener(fullscreenAdapter)
         dispose()
         super.removeNotify()
     }
 
     override fun addNotify() {
+        Logger.debug { "SkiaLayer.awt#addNotify $this" }
         super.addNotify()
-        val window = SwingUtilities.getRoot(this) as Window
+        val window = SwingUtilities.getWindowAncestor(this)
         window.addComponentListener(fullscreenAdapter)
-        backedLayer.defineContentScale()
         checkShowing()
         init(isInited)
     }
-
 
     actual fun detach() {
         dispose()
@@ -143,8 +220,13 @@ actual open class SkiaLayer internal constructor(
     private var isRendering = false
 
     private fun checkShowing() {
+        val wasShowing = isShowingCached
         isShowingCached = super.isShowing()
+        if (wasShowing != isShowing) {
+            redrawer?.setVisible(isShowing)
+        }
         if (isShowing) {
+            redrawer?.syncBounds()
             repaint()
         }
     }
@@ -156,7 +238,7 @@ actual open class SkiaLayer internal constructor(
     }
 
     actual val contentScale: Float
-        get() = backedLayer.contentScale
+        get() = graphicsConfiguration.defaultTransform.scaleX.toFloat()
 
     /**
      * Returns the pointer to an OS specific handle (native resource) of the [SkiaLayer].
@@ -187,7 +269,7 @@ actual open class SkiaLayer internal constructor(
     actual val component: Any?
         get() = backedLayer
 
-    actual var skikoView: SkikoView? = null
+    actual var renderDelegate: SkikoRenderDelegate? = null
 
     actual fun attachTo(container: Any) {
         attachTo(container as JComponent)
@@ -197,77 +279,28 @@ actual open class SkiaLayer internal constructor(
         jComponent.add(this)
     }
 
-    private var keyEvent: KeyEvent? = null
-
-    fun addView(view: SkikoView) {
-        skikoView = view
-        addMouseListener(object : MouseAdapter() {
-            override fun mousePressed(e: MouseEvent) {
-                skikoView?.onPointerEvent(toSkikoEvent(e))
-            }
-            override fun mouseReleased(e: MouseEvent) {
-                skikoView?.onPointerEvent(toSkikoEvent(e))
-            }
-            override fun mouseEntered(e: MouseEvent) {
-                skikoView?.onPointerEvent(toSkikoEvent(e))
-            }
-            override fun mouseExited(e: MouseEvent) {
-                skikoView?.onPointerEvent(toSkikoEvent(e))
-            }
-        })
-
-        addMouseMotionListener(object : MouseMotionAdapter() {
-            override fun mouseDragged(e: MouseEvent) {
-                skikoView?.onPointerEvent(toSkikoEvent(e))
-            }
-            override fun mouseMoved(e: MouseEvent) {
-                skikoView?.onPointerEvent(toSkikoEvent(e))
-            }
-        })
-
-        addMouseWheelListener(object : MouseWheelListener {
-            override fun mouseWheelMoved(e: MouseWheelEvent) {
-                skikoView?.onPointerEvent(toSkikoEvent(e))
-            }
-        })
-
-        addKeyListener(object : KeyAdapter() {
-            override fun keyPressed(e: KeyEvent) {
-                keyEvent = e
-                skikoView?.onKeyboardEvent(toSkikoEvent(e))
-            }
-            override fun keyReleased(e: KeyEvent) {
-                keyEvent = e
-                skikoView?.onKeyboardEvent(toSkikoEvent(e))
-            }
-            override fun keyTyped(e: KeyEvent) {
-                skikoView?.onInputEvent(toSkikoTypeEvent(e, keyEvent))
-            }
-        })
-
-        addInputMethodListener(object : InputMethodListener {
-            override fun caretPositionChanged(e: InputMethodEvent) {
-                skikoView?.onInputEvent(toSkikoTypeEvent(e, keyEvent))
-            }
-            override fun inputMethodTextChanged(e: InputMethodEvent) {
-                skikoView?.onInputEvent(toSkikoTypeEvent(e, keyEvent))
-            }
-        })
-    }
-
     val clipComponents = mutableListOf<ClipRectangle>()
 
     @Volatile
     private var isDisposed = false
-    internal var redrawer: Redrawer? = null
-    private val fallbackRenderApiQueue = SkikoProperties.fallbackRenderApiQueue(properties.renderApi).toMutableList()
-    private var renderApi_ = fallbackRenderApiQueue[0]
+
+    private val redrawerManager = RedrawerManager<Redrawer>(properties.renderApi) { renderApi, oldRedrawer ->
+        oldRedrawer?.dispose()
+        val newRedrawer = renderFactory.createRedrawer(this, renderApi, analytics, properties)
+        newRedrawer.syncBounds()
+        newRedrawer
+    }
+
+    internal val redrawer: Redrawer?
+        get() = redrawerManager.redrawer
+
     actual var renderApi: GraphicsApi
-        get() = renderApi_
-        private set(value) {
-            this.renderApi_ = value
+        get() = redrawerManager.renderApi
+        set(value) {
+            redrawerManager.forceRenderApi(value)
             notifyChange(PropertyKind.Renderer)
         }
+
     val renderInfo: String
         get() = if (redrawer == null)
             "SkiaLayer isn't initialized yet"
@@ -279,34 +312,11 @@ actual open class SkiaLayer internal constructor(
     private var pictureRecorder: PictureRecorder? = null
     private val pictureLock = Any()
 
-    private fun findNextWorkingRenderApi() {
-        var thrown: Boolean
-        do {
-            thrown = false
-            try {
-                renderApi = fallbackRenderApiQueue.removeAt(0)
-                redrawer?.dispose()
-                redrawer = renderFactory.createRedrawer(this, renderApi, analytics, properties)
-                redrawer?.syncSize()
-            } catch (e: RenderException) {
-                println(e.message)
-                thrown = true
-            }
-        } while (thrown && fallbackRenderApiQueue.isNotEmpty())
-
-        if (thrown && fallbackRenderApiQueue.isEmpty()) {
-            throw RenderException("Cannot fallback to any render API")
-        }
-    }
-
     private fun init(recreation: Boolean = false) {
         isDisposed = false
         backedLayer.init()
         pictureRecorder = PictureRecorder()
-        if (recreation) {
-            fallbackRenderApiQueue.add(0, renderApi)
-        }
-        findNextWorkingRenderApi()
+        redrawerManager.findNextWorkingRenderApi(recreation)
         isInited = true
     }
 
@@ -328,37 +338,56 @@ actual open class SkiaLayer internal constructor(
         if (isInited && !isDisposed) {
             // we should dispose redrawer first (to cancel `draw` in rendering thread)
             redrawer?.dispose()
-            redrawer = null
+            redrawerManager.dispose()
             picture?.instance?.close()
             picture = null
             pictureRecorder?.close()
             pictureRecorder = null
             backedLayer.dispose()
+            peerBufferSizeFixJob?.cancel()
             isDisposed = true
         }
     }
 
-    override fun setBounds(x: Int, y: Int, width: Int, height: Int) {
-        var roundedWidth = width
-        var roundedHeight = height
-        if (isInited) {
-            roundedWidth = roundSize(width)
-            roundedHeight = roundSize(height)
-        }
-        super.setBounds(x, y, roundedWidth, roundedHeight)
-        backedLayer.setSize(roundedWidth, roundedHeight)
-        redrawer?.syncSize()
+    override fun doLayout() {
+        Logger.debug { "doLayout on $this" }
+        backedLayer.setBounds(
+            0,
+            0,
+            adjustSizeToContentScale(contentScale, width),
+            adjustSizeToContentScale(contentScale, height)
+        )
+        backedLayer.validate()
+        redrawer?.syncBounds()
     }
 
     override fun paint(g: java.awt.Graphics) {
-        super.paint(g)
+        Logger.debug { "Paint called on: $this" }
         checkContentScale()
-        // `paint` can be called when we already inside `draw` method.
+        tryRedrawImmediately()
+    }
+
+    override fun setBounds(x: Int, y: Int, width: Int, height: Int) {
+        super.setBounds(x, y, width, height)
+
+        // To avoid visual artifacts on Windows/Direct3D,
+        // redrawing should be performed immediately, without scheduling to "later".
+        // Subscribing to events instead of overriding this method won't help too.
+        //
+        // Please note that calling redraw during layout might break software renderers,
+        // so applying this fix only for Direct3D case.
+        if (renderApi == GraphicsApi.DIRECT3D && isShowing) {
+            redrawer?.syncBounds()
+            tryRedrawImmediately()
+        }
+    }
+
+    private fun tryRedrawImmediately() {
+        // It might be called inside `renderDelegate`,
+        // so to avoid recursive call (not supported) just schedule redrawing.
         //
         // For example if we call some AWT function inside renderer.onRender,
         // such as `jframe.isEnabled = false` on Linux
-        //
-        // To avoid recursive call of `draw` (we don't support recursive calls) we just schedule redrawing.
         if (isRendering) {
             redrawer?.needRedraw()
         } else {
@@ -366,14 +395,15 @@ actual open class SkiaLayer internal constructor(
         }
     }
 
-    /*
-    In AWT there is no a change DPI event; so we should call this function when we expect that DPI maybe changed
-    We hope that call it on AWT/SWING `paint` and our update is enough
-     */
-    private fun checkContentScale() {
-        if (backedLayer.checkContentScale()) {
-            notifyChange(PropertyKind.ContentScale)
-            redrawer?.syncSize()
+    // Workaround for JBR-5274 and JBR-5305
+    fun checkContentScale() {
+        val currentGraphicsContextScaleTransform = graphicsConfiguration.defaultTransform
+        if (currentGraphicsContextScaleTransform != latestReceivedGraphicsContextScaleTransform) {
+            firePropertyChange(
+                "graphicsContextScaleTransform",
+                latestReceivedGraphicsContextScaleTransform,
+                currentGraphicsContextScaleTransform
+            )
         }
     }
 
@@ -511,25 +541,27 @@ actual open class SkiaLayer internal constructor(
         val pictureHeight = (height * contentScale).toInt().coerceAtLeast(0)
 
         val bounds = Rect.makeWH(pictureWidth.toFloat(), pictureHeight.toFloat())
-        val canvas = pictureRecorder!!.beginRecording(bounds)
+        val pictureRecorder = pictureRecorder!!
+        val canvas = pictureRecorder.beginRecording(bounds)
 
         // clipping
         for (component in clipComponents) {
-            canvas.clipRectBy(component)
+            canvas.clipRectBy(component, contentScale)
         }
 
         try {
             isRendering = true
-            skikoView?.onRender(canvas, pictureWidth, pictureHeight, nanoTime)
+            renderDelegate?.onRender(canvas, pictureWidth, pictureHeight, nanoTime)
         } finally {
             isRendering = false
         }
 
         // we can dispose layer during onRender
-        if (!isDisposed) {
+        // or even dispose it and pack it again
+        if (!isDisposed && !pictureRecorder.isClosed) {
             synchronized(pictureLock) {
                 picture?.instance?.close()
-                val picture = pictureRecorder!!.finishRecordingAsPicture()
+                val picture = pictureRecorder.finishRecordingAsPicture()
                 this.picture = PictureHolder(picture, pictureWidth, pictureHeight)
             }
         }
@@ -544,8 +576,8 @@ actual open class SkiaLayer internal constructor(
             // ignore
         } catch (e: RenderException) {
             if (!isDisposed) {
-                println(e.message)
-                findNextWorkingRenderApi()
+                Logger.warn(e) { "Exception in draw scope" }
+                redrawerManager.findNextWorkingRenderApi()
                 redrawer?.redrawImmediately()
             }
         }
@@ -575,7 +607,8 @@ actual open class SkiaLayer internal constructor(
         return lockPicture { picture ->
             val store = Bitmap()
             val ci = ColorInfo(
-                ColorType.BGRA_8888, ColorAlphaType.OPAQUE, ColorSpace.sRGB)
+                ColorType.BGRA_8888, ColorAlphaType.OPAQUE, ColorSpace.sRGB
+            )
             store.setImageInfo(ImageInfo(ci, picture.width, picture.height))
             store.allocN32Pixels(picture.width, picture.height)
             val canvas = Canvas(store)
@@ -583,32 +616,6 @@ actual open class SkiaLayer internal constructor(
             store.setImmutable()
             store
         }
-    }
-
-    private fun Canvas.clipRectBy(rectangle: ClipRectangle) {
-        val dpi = contentScale
-        clipRect(
-            Rect.makeLTRB(
-                rectangle.x * dpi,
-                rectangle.y * dpi,
-                (rectangle.x + rectangle.width) * dpi,
-                (rectangle.y + rectangle.height) * dpi
-            ),
-            ClipMode.DIFFERENCE,
-            true
-        )
-    }
-
-    private fun roundSize(value: Int): Int {
-        var rounded = value * contentScale
-        val diff = rounded - rounded.toInt()
-        // We check values close to 0.5 and edit the size to avoid white lines glitch
-        if (diff > 0.4f && diff < 0.6f) {
-            rounded = value + 1f
-        } else {
-            rounded = value.toFloat()
-        }
-        return rounded.toInt()
     }
 
     fun requestNativeFocusOnAccessible(accessible: Accessible?) {
@@ -645,9 +652,40 @@ internal fun defaultFPSCounter(
     )
 }
 
-// InputEvent is abstract, so we wrap to match modality.
-actual typealias SkikoTouchPlatformEvent = Any
-actual typealias SkikoGesturePlatformEvent = Any
-actual typealias SkikoPlatformInputEvent = Any
-actual typealias SkikoPlatformKeyboardEvent = KeyEvent
-actual typealias SkikoPlatformPointerEvent = MouseEvent
+internal fun Canvas.clipRectBy(rectangle: ClipRectangle, scale: Float) {
+    clipRect(
+        Rect.makeLTRB(
+            rectangle.x * scale,
+            rectangle.y * scale,
+            (rectangle.x + rectangle.width) * scale,
+            (rectangle.y + rectangle.height) * scale
+        ),
+        ClipMode.DIFFERENCE,
+        true
+    )
+}
+
+// TODO Recheck this method validity in 2 cases - full Window content, and a Panel content
+//  issue: https://youtrack.jetbrains.com/issue/CMP-5447/Window-white-line-on-the-bottom-before-resizing
+//  suggestions: https://github.com/JetBrains/skiko/pull/988#discussion_r1763219300
+//  possible issues:
+//  - isn't obvious why 0.4/0.6 is used
+//  - increasing it by one, we avoid 1px white line, but we cut the content by 1px
+//  - it probably doesn't work correctly in a Panel content case - we don't need to adjust in this case
+/**
+ * Increases the value of width/height by one if necessary,
+ * to avoid 1px white line between Canvas and the bounding window.
+ * 1px white line appears when users resizes the window:
+ * - it is resized in Px (125, 126, 127,...)
+ * - the canvas is resized in Points (with 1.25 scale, it will be 100, 100, 101)
+ * during converting Int AWT points to actual screen pixels.
+ */
+private fun adjustSizeToContentScale(contentScale: Float, value: Int): Int {
+    val scaled = value * contentScale
+    val diff = scaled - floor(scaled)
+    return if (diff > 0.4f && diff < 0.6f) {
+        value + 1
+    } else {
+        value
+    }
+}

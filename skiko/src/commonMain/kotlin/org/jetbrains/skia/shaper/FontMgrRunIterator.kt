@@ -2,6 +2,7 @@
 package org.jetbrains.skia.shaper
 
 import org.jetbrains.skia.ExternalSymbolName
+import org.jetbrains.skia.ModuleImport
 import org.jetbrains.skia.Font
 import org.jetbrains.skia.FontMgr
 import org.jetbrains.skia.ManagedString
@@ -11,9 +12,24 @@ import org.jetbrains.skia.impl.Stats
 import org.jetbrains.skia.impl.getPtr
 import org.jetbrains.skia.impl.reachabilityBarrier
 
+private fun makeHbIcuScriptRunIterator(
+    text: ManagedString,
+    font: Font,
+    opts: ShapingOptions
+): NativePointer {
+    Stats.onNativeCall()
+    return try {
+        _nMake(getPtr(text), getPtr(font), getPtr(opts.fontMgr), opts._booleanPropsToInt())
+    } finally {
+        reachabilityBarrier(text)
+        reachabilityBarrier(font)
+        reachabilityBarrier(opts.fontMgr)
+    }
+}
+
 class FontMgrRunIterator(text: ManagedString, manageText: Boolean, font: Font, opts: ShapingOptions) :
     ManagedRunIterator<FontRun?>(
-        _nMake(getPtr(text), getPtr(font), getPtr(opts.fontMgr), opts._booleanPropsToInt()), text, manageText
+        makeHbIcuScriptRunIterator(text, font, opts), text, manageText
     ) {
     companion object {
         init {
@@ -36,20 +52,15 @@ class FontMgrRunIterator(text: ManagedString, manageText: Boolean, font: Font, o
         }
     }
 
-    init {
-        Stats.onNativeCall()
-        reachabilityBarrier(text)
-        reachabilityBarrier(font)
-        reachabilityBarrier(opts)
-    }
-
     override fun remove() {
         TODO("Not yet implemented")
     }
 }
 
 @ExternalSymbolName("org_jetbrains_skia_shaper_FontMgrRunIterator__1nMake")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_shaper_FontMgrRunIterator__1nMake")
 private external fun _nMake(textPtr: NativePointer, fontPtr: NativePointer, fontMgrPtr: NativePointer, optsBooleanProps: Int): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_shaper_FontMgrRunIterator__1nGetCurrentFont")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_shaper_FontMgrRunIterator__1nGetCurrentFont")
 private external fun _nGetCurrentFont(ptr: NativePointer): NativePointer

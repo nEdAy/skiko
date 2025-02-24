@@ -70,10 +70,13 @@ class Bitmap internal constructor(ptr: NativePointer) : Managed(ptr, _FinalizerH
      */
     fun swap(other: Bitmap) {
         Stats.onNativeCall()
-        _nSwap(_ptr, getPtr(other))
-        _imageInfo = null
-        reachabilityBarrier(this)
-        reachabilityBarrier(other)
+        try {
+            _nSwap(_ptr, getPtr(other))
+            _imageInfo = null
+        } finally {
+            reachabilityBarrier(this)
+            reachabilityBarrier(other)
+        }
     }
 
     override val imageInfo: ImageInfo
@@ -201,7 +204,7 @@ class Bitmap internal constructor(ptr: NativePointer) : Managed(ptr, _FinalizerH
      *
      * @return  size in bytes of image buffer
      */
-    fun computeByteSize(): NativePointer {
+    fun computeByteSize(): Int {
         return try {
             Stats.onNativeCall()
             _nComputeByteSize(_ptr)
@@ -685,6 +688,7 @@ class Bitmap internal constructor(ptr: NativePointer) : Managed(ptr, _FinalizerH
             )
             this
         } finally {
+            reachabilityBarrier(this)
             reachabilityBarrier(pixelRef)
         }
     }
@@ -914,12 +918,32 @@ class Bitmap internal constructor(ptr: NativePointer) : Managed(ptr, _FinalizerH
         srcX: Int = 0,
         srcY: Int = 0
     ): ByteArray? {
-        return try {
-            val size = min(dstInfo.height, height - srcY) * dstRowBytes
+        val size = getReadPixelsArraySize(dstInfo, dstRowBytes, srcY)
+        val bitmapPixels = ByteArray(size)
+        val successfulRead = readPixels(bitmapPixels, dstInfo, dstRowBytes, srcX, srcY)
+        return bitmapPixels.takeIf { successfulRead }
+    }
 
+    /**
+     * See documentation for [readPixels]
+     *
+     * @param byteArray array where pixels will be read.
+     */
+    internal fun readPixels(
+        byteArray: ByteArray,
+        dstInfo: ImageInfo = imageInfo,
+        dstRowBytes: Int = rowBytes,
+        srcX: Int = 0,
+        srcY: Int = 0
+    ): Boolean {
+        check(byteArray.size == getReadPixelsArraySize(dstInfo, dstRowBytes, srcY)) {
+            "byteArray is not properly allocated. Use readPixelsArraySize"
+        }
+        try {
             Stats.onNativeCall()
-            withNullableResult(ByteArray(size)) {
-                _nReadPixels(
+            interopScope {
+                val byteArrayHandle = toInteropForResult(byteArray)
+                val successfulRead = _nReadPixels(
                     _ptr,
                     dstInfo.width,
                     dstInfo.height,
@@ -929,14 +953,24 @@ class Bitmap internal constructor(ptr: NativePointer) : Managed(ptr, _FinalizerH
                     dstRowBytes,
                     srcX,
                     srcY,
-                    it
+                    byteArrayHandle
                 )
+                if (successfulRead) {
+                    byteArrayHandle.fromInterop(byteArray)
+                }
+                return successfulRead
             }
         } finally {
             reachabilityBarrier(this)
             reachabilityBarrier(dstInfo.colorInfo.colorSpace)
         }
     }
+
+    internal fun getReadPixelsArraySize(
+        dstInfo: ImageInfo = imageInfo,
+        dstRowBytes: Int = rowBytes,
+        srcY: Int = 0
+    ): Int = min(dstInfo.height, height - srcY) * dstRowBytes
 
     /**
      *
@@ -1049,57 +1083,75 @@ class Bitmap internal constructor(ptr: NativePointer) : Managed(ptr, _FinalizerH
 
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nGetFinalizer")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nGetFinalizer")
 private external fun Bitmap_nGetFinalizer(): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nMake")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nMake")
 private external fun _nMake(): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nMakeClone")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nMakeClone")
 private external fun _nMakeClone(ptr: NativePointer): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nSwap")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nSwap")
 private external fun _nSwap(ptr: NativePointer, otherPtr: NativePointer)
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nGetPixmap")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nGetPixmap")
 private external fun _nGetPixmap(ptr: NativePointer): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nGetImageInfo")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nGetImageInfo")
 private external fun _nGetImageInfo(ptr: NativePointer, imageInfo: InteropPointer, colorSpacePtrs: InteropPointer)
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nGetRowBytesAsPixels")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nGetRowBytesAsPixels")
 private external fun _nGetRowBytesAsPixels(ptr: NativePointer): Int
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nIsNull")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nIsNull")
 private external fun _nIsNull(ptr: NativePointer): Boolean
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nGetRowBytes")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nGetRowBytes")
 private external fun _nGetRowBytes(ptr: NativePointer): Int
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nSetAlphaType")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nSetAlphaType")
 private external fun _nSetAlphaType(ptr: NativePointer, alphaType: Int): Boolean
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nComputeByteSize")
-private external fun _nComputeByteSize(ptr: NativePointer): NativePointer
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nComputeByteSize")
+private external fun _nComputeByteSize(ptr: NativePointer): Int
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nIsImmutable")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nIsImmutable")
 private external fun _nIsImmutable(ptr: NativePointer): Boolean
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nSetImmutable")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nSetImmutable")
 private external fun _nSetImmutable(ptr: NativePointer)
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nIsVolatile")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nIsVolatile")
 private external fun _nIsVolatile(ptr: NativePointer): Boolean
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nSetVolatile")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nSetVolatile")
 private external fun _nSetVolatile(ptr: NativePointer, value: Boolean)
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nReset")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nReset")
 private external fun _nReset(ptr: NativePointer)
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nComputeIsOpaque")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nComputeIsOpaque")
 private external fun _nComputeIsOpaque(ptr: NativePointer): Boolean
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nSetImageInfo")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nSetImageInfo")
 private external fun _nSetImageInfo(
     ptr: NativePointer,
     width: Int,
@@ -1112,6 +1164,7 @@ private external fun _nSetImageInfo(
 
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nAllocPixelsFlags")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nAllocPixelsFlags")
 private external fun _nAllocPixelsFlags(
     ptr: NativePointer,
     width: Int,
@@ -1124,6 +1177,7 @@ private external fun _nAllocPixelsFlags(
 
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nAllocPixelsRowBytes")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nAllocPixelsRowBytes")
 private external fun _nAllocPixelsRowBytes(
     ptr: NativePointer,
     width: Int,
@@ -1136,6 +1190,7 @@ private external fun _nAllocPixelsRowBytes(
 
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nInstallPixels")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nInstallPixels")
 private external fun _nInstallPixels(
     ptr: NativePointer,
     width: Int,
@@ -1150,45 +1205,59 @@ private external fun _nInstallPixels(
 
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nAllocPixels")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nAllocPixels")
 private external fun _nAllocPixels(ptr: NativePointer): Boolean
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nGetPixelRef")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nGetPixelRef")
 private external fun _nGetPixelRef(ptr: NativePointer): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nGetPixelRefOriginX")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nGetPixelRefOriginX")
 private external fun _nGetPixelRefOriginX(ptr: NativePointer): Int
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nGetPixelRefOriginY")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nGetPixelRefOriginY")
 private external fun _nGetPixelRefOriginY(ptr: NativePointer): Int
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nSetPixelRef")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nSetPixelRef")
 private external fun _nSetPixelRef(ptr: NativePointer, pixelRefPtr: NativePointer, dx: Int, dy: Int)
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nIsReadyToDraw")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nIsReadyToDraw")
 private external fun _nIsReadyToDraw(ptr: NativePointer): Boolean
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nGetGenerationId")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nGetGenerationId")
 private external fun _nGetGenerationId(ptr: NativePointer): Int
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nNotifyPixelsChanged")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nNotifyPixelsChanged")
 private external fun _nNotifyPixelsChanged(ptr: NativePointer)
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nEraseColor")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nEraseColor")
 private external fun _nEraseColor(ptr: NativePointer, color: Int)
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nErase")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nErase")
 private external fun _nErase(ptr: NativePointer, color: Int, left: Int, top: Int, right: Int, bottom: Int)
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nGetColor")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nGetColor")
 private external fun Bitmap_nGetColor(ptr: NativePointer, x: Int, y: Int): Int
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nGetAlphaf")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nGetAlphaf")
 private external fun _nGetAlphaf(ptr: NativePointer, x: Int, y: Int): Float
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nExtractSubset")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nExtractSubset")
 private external fun _nExtractSubset(ptr: NativePointer, dstPtr: NativePointer, left: Int, top: Int, right: Int, bottom: Int): Boolean
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nReadPixels")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nReadPixels")
 private external fun _nReadPixels(
     ptr: NativePointer,
     width: Int,
@@ -1204,10 +1273,13 @@ private external fun _nReadPixels(
 
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nExtractAlpha")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nExtractAlpha")
 private external fun _nExtractAlpha(ptr: NativePointer, dstPtr: NativePointer, paintPtr: NativePointer, iPointResultIntArray: InteropPointer): Boolean
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nPeekPixels")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nPeekPixels")
 private external fun _nPeekPixels(ptr: NativePointer): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_Bitmap__1nMakeShader")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_Bitmap__1nMakeShader")
 private external fun _nMakeShader(ptr: NativePointer, tmx: Int, tmy: Int, samplingModeValue1: Int, samplingModeValue2: Int, localMatrix: InteropPointer): NativePointer

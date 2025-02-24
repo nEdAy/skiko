@@ -1,24 +1,35 @@
 package org.jetbrains.skiko.context
 
 import org.jetbrains.skia.*
+import org.jetbrains.skiko.Logger
+import org.jetbrains.skiko.MetalAdapter
 import org.jetbrains.skiko.RenderException
 import org.jetbrains.skiko.SkiaLayer
-import org.jetbrains.skiko.redrawer.MetalRedrawer
+import org.jetbrains.skiko.redrawer.MetalDevice
 
-internal class MetalContextHandler(layer: SkiaLayer) : JvmContextHandler(layer) {
-    val metalRedrawer: MetalRedrawer
-        get() = layer.redrawer!! as MetalRedrawer
-
+/**
+ * Provides a way to draw on Skia canvas created in [layer] bounds using Metal GPU acceleration.
+ *
+ * For each [ContextHandler.draw] request it initializes Skia Canvas with Metal context and
+ * draws [SkiaLayer.draw] content in this canvas.
+ *
+ * @see "src/awtMain/objectiveC/macos/MetalContextHandler.mm" -- native implementation
+ */
+internal class MetalContextHandler(
+    layer: SkiaLayer,
+    private val device: MetalDevice,
+    private val adapter: MetalAdapter
+) : JvmContextHandler(layer) {
     override fun initContext(): Boolean {
         try {
             if (context == null) {
-                context = metalRedrawer.makeContext()
+                context = makeContext()
                 if (System.getProperty("skiko.hardwareInfo.enabled") == "true") {
-                    println(rendererInfo())
+                    Logger.info { "Renderer info:\n ${rendererInfo()}" }
                 }
             }
         } catch (e: Exception) {
-            println("${e.message}\nFailed to create Skia Metal context!")
+            Logger.warn(e) { "Failed to create Skia Metal context!" }
             return false
         }
         return true
@@ -28,11 +39,11 @@ internal class MetalContextHandler(layer: SkiaLayer) : JvmContextHandler(layer) 
         disposeCanvas()
 
         val scale = layer.contentScale
-        val w = (layer.width * scale).toInt().coerceAtLeast(0)
-        val h = (layer.height * scale).toInt().coerceAtLeast(0)
+        val width = (layer.backedLayer.width * scale).toInt().coerceAtLeast(0)
+        val height = (layer.backedLayer.height * scale).toInt().coerceAtLeast(0)
 
-        if (w > 0 && h > 0) {
-            renderTarget = metalRedrawer.makeRenderTarget(w, h)
+        if (width > 0 && height > 0) {
+            renderTarget = makeRenderTarget(width, height)
 
             surface = Surface.makeFromBackendRenderTarget(
                 context!!,
@@ -54,12 +65,26 @@ internal class MetalContextHandler(layer: SkiaLayer) : JvmContextHandler(layer) 
     override fun flush() {
         super.flush()
         surface?.flushAndSubmit()
-        metalRedrawer.finishFrame()
+        finishFrame()
     }
 
     override fun rendererInfo(): String {
         return super.rendererInfo() +
-            "Video card: ${metalRedrawer.adapterName}\n" +
-            "Total VRAM: ${metalRedrawer.adapterMemorySize / 1024 / 1024} MB\n"
+                "Video card: ${adapter.name}\n" +
+                "Total VRAM: ${adapter.memorySize / 1024 / 1024} MB\n"
     }
+
+    private fun makeRenderTarget(width: Int, height: Int) = BackendRenderTarget(
+        makeMetalRenderTarget(device.ptr, width, height)
+    )
+
+    private fun makeContext() = DirectContext(
+        makeMetalContext(device.ptr)
+    )
+
+    private fun finishFrame() = finishFrame(device.ptr)
+
+    private external fun makeMetalContext(device: Long): Long
+    private external fun makeMetalRenderTarget(device: Long, width: Int, height: Int): Long
+    private external fun finishFrame(device: Long)
 }

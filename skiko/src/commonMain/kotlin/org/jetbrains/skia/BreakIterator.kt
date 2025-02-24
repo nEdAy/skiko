@@ -1,14 +1,12 @@
 package org.jetbrains.skia
 
-import org.jetbrains.skia.impl.InteropPointer
+import org.jetbrains.skia.impl.*
 import org.jetbrains.skia.impl.InteropScope
 import org.jetbrains.skia.impl.Library.Companion.staticLoad
-import org.jetbrains.skia.impl.Managed
 import org.jetbrains.skia.impl.Native.Companion.NullPointer
-import org.jetbrains.skia.impl.NativePointer
-import org.jetbrains.skia.impl.Stats
 import org.jetbrains.skia.impl.interopScope
 import org.jetbrains.skia.impl.reachabilityBarrier
+import org.jetbrains.skia.impl.withResult
 
 /**
  *
@@ -308,14 +306,6 @@ class BreakIterator internal constructor(ptr: NativePointer) : Managed(ptr, _Fin
     }
 
     /**
-     * Create a copy of this iterator
-     */
-    fun clone(): BreakIterator {
-        Stats.onNativeCall()
-        return BreakIterator(withErrorGuard("Failed to clone") { _nClone(_ptr, it) })
-    }
-
-    /**
      * Returns character index of the text boundary that was most recently
      * returned by [], [], [],
      * [], [], [] or
@@ -496,7 +486,10 @@ class BreakIterator internal constructor(ptr: NativePointer) : Managed(ptr, _Fin
     val ruleStatuses: IntArray
         get() = try {
             Stats.onNativeCall()
-            _nGetRuleStatuses(_ptr)
+            val arrayLen = _nGetRuleStatusesLen(_ptr)
+            withResult(IntArray(arrayLen)) { result ->
+                _nGetRuleStatuses(_ptr, result, arrayLen)
+            }
         } finally {
             reachabilityBarrier(this)
         }
@@ -544,43 +537,57 @@ private fun withErrorGuard(message: String, block: InteropScope.(InteropPointer)
 }
 
 @ExternalSymbolName("org_jetbrains_skia_BreakIterator__1nGetFinalizer")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_BreakIterator__1nGetFinalizer")
 private external fun BreakIterator_nGetFinalizer(): NativePointer
 
 @ExternalSymbolName("org_jetbrains_skia_BreakIterator__1nMake")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_BreakIterator__1nMake")
 private external fun _nMake(type: Int, locale: InteropPointer, errorCode: InteropPointer): NativePointer
 
-@ExternalSymbolName("org_jetbrains_skia_BreakIterator__1nClone")
-private external fun _nClone(ptr: NativePointer, errorCode: InteropPointer): NativePointer
-
 @ExternalSymbolName("org_jetbrains_skia_BreakIterator__1nCurrent")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_BreakIterator__1nCurrent")
 private external fun _nCurrent(ptr: NativePointer): Int
 
 @ExternalSymbolName("org_jetbrains_skia_BreakIterator__1nNext")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_BreakIterator__1nNext")
 private external fun _nNext(ptr: NativePointer): Int
 
 @ExternalSymbolName("org_jetbrains_skia_BreakIterator__1nPrevious")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_BreakIterator__1nPrevious")
 private external fun _nPrevious(ptr: NativePointer): Int
 
 @ExternalSymbolName("org_jetbrains_skia_BreakIterator__1nFirst")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_BreakIterator__1nFirst")
 private external fun _nFirst(ptr: NativePointer): Int
 
 @ExternalSymbolName("org_jetbrains_skia_BreakIterator__1nLast")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_BreakIterator__1nLast")
 private external fun _nLast(ptr: NativePointer): Int
 
 @ExternalSymbolName("org_jetbrains_skia_BreakIterator__1nPreceding")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_BreakIterator__1nPreceding")
 private external fun _nPreceding(ptr: NativePointer, offset: Int): Int
 
 @ExternalSymbolName("org_jetbrains_skia_BreakIterator__1nFollowing")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_BreakIterator__1nFollowing")
 private external fun _nFollowing(ptr: NativePointer, offset: Int): Int
 
 @ExternalSymbolName("org_jetbrains_skia_BreakIterator__1nIsBoundary")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_BreakIterator__1nIsBoundary")
 private external fun _nIsBoundary(ptr: NativePointer, offset: Int): Boolean
 
 @ExternalSymbolName("org_jetbrains_skia_BreakIterator__1nGetRuleStatus")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_BreakIterator__1nGetRuleStatus")
 private external fun _nGetRuleStatus(ptr: NativePointer): Int
 
+@ExternalSymbolName("org_jetbrains_skia_BreakIterator__1nGetRuleStatusesLen")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_BreakIterator__1nGetRuleStatusesLen")
+private external fun _nGetRuleStatusesLen(ptr: NativePointer): Int
+
 @ExternalSymbolName("org_jetbrains_skia_BreakIterator__1nGetRuleStatuses")
-private external fun _nGetRuleStatuses(ptr: NativePointer): IntArray
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_BreakIterator__1nGetRuleStatuses")
+private external fun _nGetRuleStatuses(ptr: NativePointer, result: InteropPointer, len: Int)
 
 @ExternalSymbolName("org_jetbrains_skia_BreakIterator__1nSetText")
+@ModuleImport("./skiko.mjs", "org_jetbrains_skia_BreakIterator__1nSetText")
 private external fun _nSetText(ptr: NativePointer, textStr: InteropPointer, len: Int, errorCode: InteropPointer): NativePointer

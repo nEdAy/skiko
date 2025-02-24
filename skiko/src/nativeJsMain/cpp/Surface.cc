@@ -1,10 +1,12 @@
 #include <iostream>
-#include "GrDirectContext.h"
+#include "ganesh/GrDirectContext.h"
 #include "SkSurface.h"
+#include "include/gpu/ganesh/SkSurfaceGanesh.h"
 #include "common.h"
 
 #ifdef SK_METAL
-#include "include/gpu/mtl/GrMtlTypes.h"
+#include "include/gpu/ganesh/mtl/SkSurfaceMetal.h"
+#include "include/gpu/ganesh/mtl/GrMtlTypes.h"
 #endif
 
 
@@ -21,7 +23,7 @@ SKIKO_EXPORT KNativePointer org_jetbrains_skia_Surface__1nMakeRasterDirect
                                               sk_ref_sp<SkColorSpace>(colorSpace));
     std::unique_ptr<SkSurfaceProps> surfaceProps = skija::SurfaceProps::toSkSurfaceProps(surfacePropsInts);
 
-    sk_sp<SkSurface> instance = SkSurface::MakeRasterDirect(
+    sk_sp<SkSurface> instance = SkSurfaces::WrapPixels(
       imageInfo,
       reinterpret_cast<void*>(pixelsPtr),
       rowBytes,
@@ -37,7 +39,7 @@ SKIKO_EXPORT KNativePointer org_jetbrains_skia_Surface__1nMakeRasterDirectWithPi
     SkPixmap* pixmap = reinterpret_cast<SkPixmap*>(pixmapPtr);
     std::unique_ptr<SkSurfaceProps> surfaceProps = skija::SurfaceProps::toSkSurfaceProps(surfacePropsInts);
 
-    sk_sp<SkSurface> instance = SkSurface::MakeRasterDirect(*pixmap, surfaceProps.get());
+    sk_sp<SkSurface> instance = SkSurfaces::WrapPixels(*pixmap, surfaceProps.get());
     return reinterpret_cast<KNativePointer>(instance.release());
 }
 
@@ -56,7 +58,7 @@ SKIKO_EXPORT KNativePointer org_jetbrains_skia_Surface__1nMakeRaster
                                               sk_ref_sp<SkColorSpace>(colorSpace));
     std::unique_ptr<SkSurfaceProps> surfaceProps = skija::SurfaceProps::toSkSurfaceProps(surfacePropsInts);
 
-    sk_sp<SkSurface> instance = SkSurface::MakeRaster(
+    sk_sp<SkSurface> instance = SkSurfaces::Raster(
       imageInfo,
       rowBytes,
       surfaceProps.get());
@@ -66,33 +68,29 @@ SKIKO_EXPORT KNativePointer org_jetbrains_skia_Surface__1nMakeRaster
 
 SKIKO_EXPORT KNativePointer org_jetbrains_skia_Surface__1nMakeRasterN32Premul
   (KInt width, KInt height) {
-    sk_sp<SkSurface> surface = SkSurface::MakeRasterN32Premul(
-        width, height,
-        /* const SkSurfaceProps* */ nullptr
-    );
+    SkImageInfo imageInfo = SkImageInfo::MakeN32Premul(width, height);
+    sk_sp<SkSurface> surface = SkSurfaces::Raster(imageInfo);
     return reinterpret_cast<KNativePointer>(surface.release());
 }
 
 
 SKIKO_EXPORT KNativePointer org_jetbrains_skia_Surface__1nMakeFromBackendRenderTarget
-  (KNativePointer pContext, KNativePointer pBackendRenderTarget, KInt surfaceOrigin, KInt colorType, KNativePointer colorSpacePtr, KInteropPointer surfacePropsObj) {
+  (KNativePointer pContext, KNativePointer pBackendRenderTarget, KInt surfaceOrigin, KInt colorType, KNativePointer colorSpacePtr, KInteropPointer surfacePropsInts) {
     GrDirectContext* context = reinterpret_cast<GrDirectContext*>((pContext));
     GrBackendRenderTarget* backendRenderTarget = reinterpret_cast<GrBackendRenderTarget*>((pBackendRenderTarget));
     GrSurfaceOrigin grSurfaceOrigin = static_cast<GrSurfaceOrigin>(surfaceOrigin);
     SkColorType skColorType = static_cast<SkColorType>(colorType);
     sk_sp<SkColorSpace> colorSpace = sk_ref_sp<SkColorSpace>(reinterpret_cast<SkColorSpace*>((colorSpacePtr)));
 
-    // std::unique_ptr<SkSurfaceProps> surfaceProps = skija::SurfaceProps::toSkSurfaceProps(surfacePropsObj);
+    std::unique_ptr<SkSurfaceProps> surfaceProps = skija::SurfaceProps::toSkSurfaceProps(surfacePropsInts);
 
-    sk_sp<SkSurface> surface = SkSurface::MakeFromBackendRenderTarget(
+    sk_sp<SkSurface> surface = SkSurfaces::WrapBackendRenderTarget(
         static_cast<GrRecordingContext*>(context),
         *backendRenderTarget,
         grSurfaceOrigin,
         skColorType,
         colorSpace,
-        // "TODO: we silently ignore the surfacePropsObj arg for now.
-        // surfaceProps,
-        nullptr,
+        surfaceProps.get(),
         /* RenderTargetReleaseProc */ nullptr,
         /* ReleaseContext */ nullptr
     );
@@ -100,16 +98,16 @@ SKIKO_EXPORT KNativePointer org_jetbrains_skia_Surface__1nMakeFromBackendRenderT
 }
 
 SKIKO_EXPORT KNativePointer org_jetbrains_skia_Surface__1nMakeFromMTKView
-  (KNativePointer contextPtr, KNativePointer mtkViewPtr, KInt surfaceOrigin, KInt sampleCount, KInt colorType, KNativePointer colorSpacePtr, KInteropPointer surfacePropsObj) {
+  (KNativePointer contextPtr, KNativePointer mtkViewPtr, KInt surfaceOrigin, KInt sampleCount, KInt colorType, KNativePointer colorSpacePtr, KInteropPointer surfacePropsInts) {
 #ifdef SK_METAL
     GrDirectContext* context = reinterpret_cast<GrDirectContext*>((contextPtr));
     GrMTLHandle* mtkView = reinterpret_cast<GrMTLHandle*>((mtkViewPtr));
     GrSurfaceOrigin grSurfaceOrigin = static_cast<GrSurfaceOrigin>(surfaceOrigin);
     SkColorType skColorType = static_cast<SkColorType>(colorType);
     sk_sp<SkColorSpace> colorSpace = sk_ref_sp<SkColorSpace>(reinterpret_cast<SkColorSpace*>((colorSpacePtr)));
-    std::unique_ptr<SkSurfaceProps> surfaceProps = skija::SurfaceProps::toSkSurfaceProps(surfacePropsObj);
+    std::unique_ptr<SkSurfaceProps> surfaceProps = skija::SurfaceProps::toSkSurfaceProps(surfacePropsInts);
 
-    sk_sp<SkSurface> surface = SkSurface::MakeFromMTKView(
+    sk_sp<SkSurface> surface = SkSurfaces::WrapMTKView(
         static_cast<GrRecordingContext*>(context),
         mtkView,
         grSurfaceOrigin,
@@ -127,7 +125,7 @@ SKIKO_EXPORT KNativePointer org_jetbrains_skia_Surface__1nMakeRenderTarget
   (KNativePointer contextPtr, KBoolean budgeted,
     KInt width, KInt height, KInt colorType, KInt alphaType, KNativePointer colorSpacePtr,
     KInt sampleCount, KInt surfaceOrigin,
-    KInteropPointer surfacePropsObj,
+    KInteropPointer surfacePropsInts,
     KBoolean shouldCreateWithMips)
 {
     GrDirectContext* context = reinterpret_cast<GrDirectContext*>((contextPtr));
@@ -137,10 +135,10 @@ SKIKO_EXPORT KNativePointer org_jetbrains_skia_Surface__1nMakeRenderTarget
                                               static_cast<SkColorType>(colorType),
                                               static_cast<SkAlphaType>(alphaType),
                                               sk_ref_sp<SkColorSpace>(colorSpace));
-    std::unique_ptr<SkSurfaceProps> surfaceProps = skija::SurfaceProps::toSkSurfaceProps(surfacePropsObj);
+    std::unique_ptr<SkSurfaceProps> surfaceProps = skija::SurfaceProps::toSkSurfaceProps(surfacePropsInts);
 
-    sk_sp<SkSurface> instance = SkSurface::MakeRenderTarget(
-      context, budgeted ? SkBudgeted::kYes : SkBudgeted::kNo,
+    sk_sp<SkSurface> instance = SkSurfaces::RenderTarget(
+      context, budgeted ? skgpu::Budgeted::kYes : skgpu::Budgeted::kNo,
       imageInfo,
       sampleCount, static_cast<GrSurfaceOrigin>(surfaceOrigin),
       surfaceProps.get(),
@@ -150,7 +148,7 @@ SKIKO_EXPORT KNativePointer org_jetbrains_skia_Surface__1nMakeRenderTarget
 
 SKIKO_EXPORT KNativePointer org_jetbrains_skia_Surface__1nMakeNull
   (KInt width, KInt height) {
-  sk_sp<SkSurface> instance = SkSurface::MakeNull(width, height);
+  sk_sp<SkSurface> instance = SkSurfaces::Null(width, height);
   return reinterpret_cast<KNativePointer>(instance.release());
 }
 
@@ -216,18 +214,6 @@ SKIKO_EXPORT void org_jetbrains_skia_Surface__1nWritePixels
     SkSurface* surface = reinterpret_cast<SkSurface*>((ptr));
     SkBitmap* bitmap = reinterpret_cast<SkBitmap*>((bitmapPtr));
     surface->writePixels(*bitmap, x, y);
-}
-
-SKIKO_EXPORT void org_jetbrains_skia_Surface__1nFlushAndSubmit
-  (KNativePointer ptr, KBoolean syncCpu) {
-    SkSurface* surface = reinterpret_cast<SkSurface*>((ptr));
-    surface->flushAndSubmit(syncCpu);
-}
-
-SKIKO_EXPORT void org_jetbrains_skia_Surface__1nFlush
-  (KNativePointer ptr) {
-    SkSurface* surface = reinterpret_cast<SkSurface*>((ptr));
-    surface->flush();
 }
 
 SKIKO_EXPORT KBoolean org_jetbrains_skia_Surface__1nUnique

@@ -30,19 +30,36 @@ class SvgTest {
         dom.setContainerSize(101f, 101f)
         require(dom.root != null)
         val e = dom.root!!
-        require(e.x.unit == SVGLengthUnit.NUMBER)
-        require(e.y.unit == SVGLengthUnit.NUMBER)
-        require(e.width.unit == SVGLengthUnit.NUMBER)
-        require(e.height.unit == SVGLengthUnit.NUMBER)
-        require(e.viewBox == null)
-        require(e.tag == SVGTag.SVG)
+        assertEquals(SVGLengthUnit.NUMBER, e.x.unit)
+        assertEquals(SVGLengthUnit.NUMBER, e.y.unit)
+        assertEquals(SVGLengthUnit.NUMBER, e.width.unit)
+        assertEquals(SVGLengthUnit.NUMBER, e.height.unit)
+        assertEquals(null, e.viewBox)
+        assertEquals(SVGTag.SVG, e.tag)
         e.viewBox = Rect(0f, 1f, 100f, 200f)
         assertCloseEnough(Rect(0f, 1f, 100f, 200f), e.viewBox!!)
-        val aspectRatio = SVGPreserveAspectRatio(SVGPreserveAspectRatioAlign.XMIN_YMIN, SVGPreserveAspectRatioScale.MEET)
+        val aspectRatio =
+            SVGPreserveAspectRatio(SVGPreserveAspectRatioAlign.XMIN_YMIN, SVGPreserveAspectRatioScale.MEET)
         e.preserveAspectRatio = aspectRatio
         assertEquals(aspectRatio, e.preserveAspectRatio)
         require(e.getIntrinsicSize(SVGLengthContext(100f, 100f)).x == 300f)
         e.viewBox = Rect.makeXYWH(0f, 1f, 2f, 3f)
         require(e.viewBox == Rect.makeXYWH(0f, 1f, 2f, 3f))
+    }
+
+    @Test
+    fun SvgLength() {
+        val l = SVGLength(123f)
+
+        assertEquals(123f, l.value)
+        assertEquals(SVGLengthUnit.NUMBER, l.unit)
+
+        val lpx = l.withUnit(SVGLengthUnit.PX)
+        assertEquals(123f, lpx.value)
+        assertEquals(SVGLengthUnit.PX, lpx.unit)
+
+        val newLpx = lpx.withValue(321f)
+        assertEquals(321f, newLpx.value)
+        assertEquals(SVGLengthUnit.PX, newLpx.unit)
     }
 }

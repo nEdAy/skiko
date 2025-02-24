@@ -9,18 +9,21 @@ import org.jetbrains.skiko.OS
 import org.jetbrains.skiko.hostOs
 import org.jetbrains.skiko.kotlinBackend
 import org.jetbrains.skiko.tests.runTest
-import kotlin.test.Test
-import kotlin.test.assertContentEquals
-import kotlin.test.assertEquals
+import kotlin.test.*
 
-private fun isLinuxOrJs() = (hostOs == OS.Linux) || (hostOs == OS.JS)
-private fun isWin() = (hostOs == OS.Windows)
+private fun isMac() = (hostOs == OS.MacOS)
+private fun isIos() = (hostOs == OS.Ios)
+private fun isLinux() = (hostOs == OS.Linux)
+private fun isWindows() = (hostOs == OS.Windows)
+private fun isTvos() = (hostOs == OS.Tvos)
+private fun isJs() = (kotlinBackend == KotlinBackend.JS)
 private val COARSE_EPSILON = 2.4f
+internal const val jbMonoPath = "./fonts/JetBrainsMono-Regular.ttf"
 
 class FontTests {
     @Test
     fun fontTest() = runTest {
-        val jbMono = Typeface.makeFromResource("./fonts/JetBrainsMono-Regular.ttf")
+        val jbMono = Typeface.makeFromResource(jbMonoPath)
         Font(jbMono).use { font ->
             assertEquals(12f, font.size)
             // TODO: we have to use bigger epsilon because of MacOS and definitely need to investigate what would be a better solution
@@ -87,54 +90,86 @@ class FontTests {
                 assertCloseEnough(expected, actual, COARSE_EPSILON)
             }
 
+            assertEquals(if (isLinux() || isJs()) 26 else 24, firstGlyphPath.pointsCount)
 
-            if (isLinuxOrJs()) {
-                assertEquals(26, firstGlyphPath.pointsCount)
-
-                assertCloseEnough(FontMetrics(
-                    -11.64f,
-                    -11.64f,
-                    3.2400002f,
-                    3.2400002f,
-                    0f,
-                    7.2000003f,
-                    29.460001f,
-                    -20.880001f,
-                    8.58f,
-                    6.6000004f,
-                    8.64f,
-                    0.54f,
-                    1.4399999f,
-                    0.54f,
-                    -3.8999999f
-                ), font.metrics, 10e-3f)
-            } else {
-                assertEquals(24, firstGlyphPath.pointsCount)
-
-                // TODO: this cross-platform differences look very suspicious and need to be addressed separately
-
-                assertCloseEnough(FontMetrics(
-                    -11.64f,
-                    -11.64f,
-                    3.2400002f,
-                    3.2400002f,
-                    0f,
-                    if (isWin()) 0f else 29.460001f,
-                    29.460001f,
-                    -20.880001f,
-                    8.58f,
-                    6.6000004f,
-                    8.64f,
-                    0.54f,
-                    1.4399999f,
-                    if (isWin()) 0.54f else null,
-                    if (isWin()) -3.8999999f else null
-                ), font.metrics, 10e-3f)
-
-            }
+            //FontMetrics(_top=-11.64, _ascent=-11.64, _descent=3.24, _bottom=3.24, _leading=0.0, _avgCharWidth=29.46, _maxCharWidth=29.46, _xMin=-20.88, _xMax=8.58, _xHeight=6.6, _capHeight=8.64, _underlineThickness=0.54, _underlinePosition=1.44, _strikeoutThickness=0.54, _strikeoutPosition=-3.9), eps=0.01
+            //FontMetrics(_top=-11.64, _ascent=-11.64, _descent=3.2400002, _bottom=3.2400002, _leading=0.0, _avgCharWidth=7.2, _maxCharWidth=29.460001, _xMin=-20.880001, _xMax=8.58, _xHeight=6.6000004, _capHeight=8.64, _underlineThickness=0.54, _underlinePosition=1.4399999, _strikeoutThickness=0.54, _strikeoutPosition=-3.8999999)
+            assertCloseEnough(FontMetrics(
+                top = -11.64f,
+                ascent = -11.64f,
+                descent = 3.2400002f,
+                bottom = 3.2400002f,
+                leading = 0f,
+                avgCharWidth = when {
+                    isJs() -> 7.2f
+                    isIos() || isMac() || isTvos() -> 29.460001f
+                    isWindows() -> 0f
+                    else -> 7.2f
+                },
+                maxCharWidth = 29.460001f,
+                xMin = -20.880001f,
+                xMax = 8.58f,
+                xHeight = 6.6000004f,
+                capHeight = 8.64f,
+                underlineThickness = 0.54f,
+                underlinePosition = 1.4399999f,
+                strikeoutThickness = 0.54f,
+                strikeoutPosition = -3.8999999f
+            ), font.metrics, 10e-3f)
 
 //            assertEquals(Rect(1f, -12f, 21f, 0f), font.measureText("ЕЁЫ"))
 
+        }
+    }
+
+    @Test
+    fun fontLinearMetricsTest() = runTest {
+        val jbMono = Typeface.makeFromResource(jbMonoPath)
+        Font(jbMono).use { font ->
+            assertFalse(font.isLinearMetrics)
+            font.isLinearMetrics = true
+            assertTrue(font.isLinearMetrics)
+        }
+    }
+
+    @Test
+    fun emptyFontMetricsAreZero() {
+        // The behaviour was changed in m122.
+        // https://github.com/google/skia/blob/main/RELEASE_NOTES.md#milestone-122
+        // There is no default font anymore.
+        Font(Typeface.makeEmpty()).use { font ->
+            val metrics = font.metrics
+            assertTrue(
+                metrics.top == 0f &&
+                        metrics.bottom == 0f &&
+                        metrics.ascent == 0f &&
+                        metrics.descent == 0f
+            )
+        }
+
+        Font(null).use { font ->
+            val metrics = font.metrics
+            assertTrue(
+                metrics.top == 0f &&
+                        metrics.bottom == 0f &&
+                        metrics.ascent == 0f &&
+                        metrics.descent == 0f
+            )
+        }
+    }
+
+    @Test
+    fun nonEmptyFontMetrics() = runTest {
+        val jbMono = Typeface.makeFromResource(jbMonoPath)
+
+        Font(jbMono).use { font ->
+            val metrics = font.metrics
+            assertFalse(
+                metrics.top == 0f &&
+                        metrics.bottom == 0f &&
+                        metrics.ascent == 0f &&
+                        metrics.descent == 0f
+            )
         }
     }
 }

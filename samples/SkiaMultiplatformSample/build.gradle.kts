@@ -1,30 +1,27 @@
-import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
+import org.jetbrains.kotlin.gradle.plugin.mpp.*
 
 buildscript {
     repositories {
-        mavenLocal()
         google()
         mavenCentral()
         maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
     }
 
     dependencies {
-        // __KOTLIN_COMPOSE_VERSION__
-        classpath(kotlin("gradle-plugin", version = "1.6.10"))
+        val kotlinVersion = project.property("kotlin.version") as String
+        classpath(kotlin("gradle-plugin", version = kotlinVersion))
     }
 }
 
 plugins {
-    kotlin("multiplatform") version "1.6.10"
+    kotlin("multiplatform")
     id("org.jetbrains.gradle.apple.applePlugin") version "222.3345.143-0.16"
 }
 
-val coroutinesVersion = "1.5.2"
-
 repositories {
-    mavenLocal()
     google()
     mavenCentral()
+    mavenLocal()
     maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
 }
 
@@ -53,14 +50,29 @@ if (project.hasProperty("skiko.version")) {
 val resourcesDir = "$buildDir/resources"
 val skikoWasm by configurations.creating
 
-dependencies {
-    skikoWasm("org.jetbrains.skiko:skiko-js-wasm-runtime:$version")
-}
+val isCompositeBuild = extra.properties.getOrDefault("skiko.composite.build", "") == "1"
 
 val unzipTask = tasks.register("unzipWasm", Copy::class) {
     destinationDir = file(resourcesDir)
     from(skikoWasm.map { zipTree(it) })
+
+    if (isCompositeBuild) {
+        val skikoWasmJarTask = gradle.includedBuild("skiko").task(":skikoWasmJar")
+        dependsOn(skikoWasmJarTask)
+    }
 }
+
+dependencies {
+    if (isCompositeBuild) {
+        val filePath = gradle.includedBuild("skiko").projectDir
+            .resolve("./build/libs/skiko-wasm-$version.jar")
+        skikoWasm(files(filePath))
+    } else {
+        skikoWasm("org.jetbrains.skiko:skiko-js-wasm-runtime:$version")
+    }
+}
+
+
 
 kotlin {
     if (hostOs == "macos") {
@@ -70,11 +82,19 @@ kotlin {
         macosArm64() {
             configureToLaunchFromXcode()
         }
-        ios() {
+        iosSimulatorArm64() {
             configureToLaunchFromAppCode()
             configureToLaunchFromXcode()
         }
-        iosSimulatorArm64() {
+        tvosX64() {
+            configureToLaunchFromAppCode()
+            configureToLaunchFromXcode()
+        }
+        tvosArm64() {
+            configureToLaunchFromAppCode()
+            configureToLaunchFromXcode() 
+        }
+        tvosSimulatorArm64() {
             configureToLaunchFromAppCode()
             configureToLaunchFromXcode()
         }
@@ -87,7 +107,22 @@ kotlin {
     }
 
     js(IR) {
-        browser()
+        moduleName = "clocks-js"
+        browser {
+            commonWebpackConfig {
+                outputFileName = "clocks-js.js"
+            }
+        }
+        binaries.executable()
+    }
+
+    wasmJs {
+        moduleName = "clocks-wasm"
+        browser {
+            commonWebpackConfig {
+                outputFileName = "clocks-wasm.js"
+            }
+        }
         binaries.executable()
     }
 
@@ -95,7 +130,7 @@ kotlin {
         val commonMain by getting {
             dependencies {
                 implementation("org.jetbrains.skiko:skiko:$version")
-                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion")
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
             }
         }
 
@@ -110,10 +145,18 @@ kotlin {
             }
         }
 
-        val jsMain by getting {
+        val webMain by creating {
             dependsOn(commonMain)
             resources.setSrcDirs(resources.srcDirs)
             resources.srcDirs(unzipTask.map { it.destinationDir })
+        }
+
+        val jsMain by getting {
+            dependsOn(webMain)
+        }
+
+        val wasmJsMain by getting {
+            dependsOn(webMain)
         }
 
         val darwinMain by creating {
@@ -131,11 +174,26 @@ kotlin {
             val macosArm64Main by getting {
                 dependsOn(macosMain)
             }
-            val iosMain by getting {
+            val uikitMain by creating {
                 dependsOn(darwinMain)
+            }
+            val iosMain by creating {
+                dependsOn(uikitMain)
             }
             val iosSimulatorArm64Main by getting {
                 dependsOn(iosMain)
+            }
+            val tvosMain by creating {
+                dependsOn(uikitMain)
+            }
+            val tvosX64Main by getting {
+                dependsOn(tvosMain)
+            }
+            val tvosArm64Main by getting {
+                dependsOn(tvosMain)
+            }
+            val tvosSimulatorArm64Main by getting {
+                dependsOn(tvosMain)
             }
         }
     }
@@ -179,7 +237,7 @@ if (hostOs == "macos") {
 }
 
 project.tasks.register<JavaExec>("runAwt") {
-    val kotlinTask =  project.tasks.named("compileKotlinAwt")
+    val kotlinTask = project.tasks.named("compileKotlinAwt")
     dependsOn(kotlinTask)
     systemProperty("skiko.fps.enabled", "true")
     systemProperty("skiko.linux.autodpi", "true")
@@ -203,8 +261,14 @@ tasks.withType<org.jetbrains.kotlin.gradle.dsl.KotlinJsCompile>().configureEach 
 }
 
 enum class Target(val simulator: Boolean, val key: String) {
-    WATCHOS_X86(true, "watchos"), WATCHOS_ARM64(false, "watchos"),
-    IOS_X64(true, "iosX64"), IOS_ARM64(false, "iosArm64"), IOS_SIMULATOR_ARM64(true, "iosSimulatorArm64")
+    WATCHOS_X86(true, "watchos"), 
+    WATCHOS_ARM64(false, "watchos"),
+    IOS_X64(true, "iosX64"),
+    IOS_ARM64(false, "iosArm64"), 
+    IOS_SIMULATOR_ARM64(true, "iosSimulatorArm64"),
+    TVOS_X64(true, "tvosX64"),
+    TVOS_ARM64(true, "tvosArm64"),
+    TVOS_SIMULATOR_ARM64(true, "tvosSimulatorArm64"),
 }
 
 
@@ -212,9 +276,16 @@ if (hostOs == "macos") {
 // Create Xcode integration tasks.
     val sdkName: String? = System.getenv("SDK_NAME")
 
+    println("Configuring XCode for $sdkName")
     val target = sdkName.orEmpty().let {
         when {
             it.startsWith("iphoneos") -> Target.IOS_ARM64
+            it.startsWith("appletvsimulator") -> when (host) {
+                "macos-x64" -> Target.TVOS_X64
+                "macos-arm64" -> Target.TVOS_SIMULATOR_ARM64
+                else -> throw GradleException("Host OS is not supported")
+            }
+            it.startsWith("appletvos") -> Target.TVOS_ARM64
             it.startsWith("watchos") -> Target.WATCHOS_ARM64
             it.startsWith("watchsimulator") -> Target.WATCHOS_X86
             else -> when (host) {
@@ -245,6 +316,8 @@ if (hostOs == "macos") {
         // Otherwise copy the executable into the Xcode output directory.
         tasks.create("packForXCode", Copy::class.java) {
             dependsOn(kotlinBinary.linkTask)
+            
+            println("Packing for XCode: ${kotlinBinary.target}")
 
             destinationDir = file(targetBuildDir)
 
@@ -302,5 +375,12 @@ fun KotlinNativeTarget.configureToLaunchFromXcode() {
                 "-linker-option", "-framework", "-linker-option", "CoreGraphics"
             )
         }
+    }
+}
+
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinNativeCompile>().configureEach {
+    kotlinOptions {
+        freeCompilerArgs += "-opt-in=kotlinx.cinterop.ExperimentalForeignApi"
     }
 }

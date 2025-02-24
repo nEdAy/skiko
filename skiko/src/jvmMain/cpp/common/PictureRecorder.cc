@@ -2,6 +2,7 @@
 #include <jni.h>
 #include "interop.hh"
 #include "SkDrawable.h"
+#include "SkPicture.h"
 #include "SkPictureRecorder.h"
 
 static void deletePictureRecorder(SkPictureRecorder* pr) {
@@ -21,9 +22,10 @@ extern "C" JNIEXPORT jlong JNICALL Java_org_jetbrains_skia_PictureRecorderKt_Pic
 }
 
 extern "C" JNIEXPORT jlong JNICALL Java_org_jetbrains_skia_PictureRecorderKt__1nBeginRecording
-  (JNIEnv* env, jclass jclass, jlong ptr, jfloat left, jfloat top, jfloat right, jfloat bottom) {
+  (JNIEnv* env, jclass jclass, jlong ptr, jfloat left, jfloat top, jfloat right, jfloat bottom, jlong bbh) {
     SkPictureRecorder* instance = reinterpret_cast<SkPictureRecorder*>(static_cast<uintptr_t>(ptr));
-    SkCanvas* canvas = instance->beginRecording(SkRect::MakeLTRB(left, top, right, bottom), nullptr);
+    SkBBHFactory* factory = reinterpret_cast<SkBBHFactory*>(static_cast<uintptr_t>(bbh));
+    SkCanvas* canvas = instance->beginRecording(SkRect::MakeLTRB(left, top, right, bottom), factory);
     return reinterpret_cast<jlong>(canvas);
 }
 

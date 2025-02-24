@@ -8,34 +8,17 @@
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
 
-#import <GrBackendSurface.h>
-#import <GrDirectContext.h>
-#import <mtl/GrMtlBackendContext.h>
-#import <mtl/GrMtlTypes.h>
+#import "ganesh/GrBackendSurface.h"
+#import "ganesh/GrDirectContext.h"
+#import "ganesh/mtl/GrMtlBackendContext.h"
+#import "ganesh/mtl/GrMtlDirectContext.h"
+#import "ganesh/mtl/GrMtlTypes.h"
 
-#define MuxGraphicsCard 7
-#define kOpen 0
-#define kGetMuxState 3
-#define kDriverClassName "AppleGraphicsControl"
-#define AdpapterPriorityAuto 0
-#define AdpapterPriorityIntegrated 1
-#define AdpapterPriorityDiscrete 2
+#import "MetalDevice.h"
 
-@interface AWTMetalLayer : CAMetalLayer
+#include <assert.h>
 
-@property jobject javaRef;
-
-@end
-
-@interface MetalDevice : NSObject
-
-@property (weak) CALayer *container;
-@property (retain, strong) AWTMetalLayer *layer;
-@property (retain, strong) id<MTLDevice> adapter;
-@property (retain, strong) id<MTLCommandQueue> queue;
-@property (retain, strong) id<CAMetalDrawable> drawableHandle;
-
-@end
+#include "common/interop.hh"
 
 @implementation AWTMetalLayer
 
@@ -73,124 +56,93 @@
 
 @end
 
+@interface MTLCommandQueueCache : NSObject
+@property (strong, nonatomic) NSMapTable<id<MTLDevice>, id<MTLCommandQueue>> *commandQueueMap;
+@end
+
+@implementation MTLCommandQueueCache
+
+- (instancetype)init {
+    if (self = [super init]) {
+        _commandQueueMap = [NSMapTable strongToStrongObjectsMapTable];  // Retains both keys and values
+    }
+    return self;
+}
+
+- (id<MTLCommandQueue>)commandQueueForDevice:(id<MTLDevice>)device {
+    id<MTLCommandQueue> commandQueue = [_commandQueueMap objectForKey:device];
+    if (!commandQueue) {
+        commandQueue = [device newCommandQueue];
+        [_commandQueueMap setObject:commandQueue forKey:device];
+    }
+    return commandQueue;
+}
+
++ (instancetype)sharedCache {
+    static MTLCommandQueueCache *cache = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        cache = [MTLCommandQueueCache new];
+    });
+    return cache;
+}
+
+@end
+
+/// Linked from skiko/src/jvmMain/cpp/common/impl/Library.cc
+/// clang treats extern symbol declarations as C in Objective-C++(.mm) and doesn't mangle them
+extern JavaVM *jvm;
+
+static JNIEnv *resolveJNIEnvForCurrentThread() {
+    JNIEnv *env;
+    int envStat = jvm->GetEnv((void **)&env, SKIKO_JNI_VERSION);
+
+    if (envStat == JNI_EDETACHED) {
+        jvm->AttachCurrentThread((void **) &env, NULL);
+    }
+
+    assert(env);
+
+    return env;
+}
+
+static jmethodID getOnOcclusionStateChangedMethodID(JNIEnv *env, jobject redrawer) {
+    static jmethodID onOcclusionStateChanged = NULL;
+    if (onOcclusionStateChanged == NULL) {
+        jclass redrawerClass = env->GetObjectClass(redrawer);
+        onOcclusionStateChanged = env->GetMethodID(redrawerClass, "onOcclusionStateChanged", "(Z)V");
+    }
+    return onOcclusionStateChanged;
+}
+
+
+static void setWindowPropertiesUnsafe(NSWindow* window, jboolean transparency) {
+    if (window == NULL) return;
+    if (transparency) {
+        window.hasShadow = NO;
+    }
+}
+
+static void setWindowProperties(NSWindow* window, jboolean transparency) {
+    if (NSThread.currentThread.isMainThread) {
+        setWindowPropertiesUnsafe(window, transparency);
+    } else {
+        // In case of OpenJDK, EDT thread != NSThread main thread
+        __weak NSWindow *weakWindow = window;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            setWindowPropertiesUnsafe(weakWindow, transparency);
+        });
+    }
+}
+
 extern "C"
 {
 
-JNIEXPORT jlong JNICALL Java_org_jetbrains_skiko_redrawer_MetalRedrawer_makeMetalContext(
-    JNIEnv* env, jobject redrawer, jlong devicePtr)
-{
-    @autoreleasepool {
-        MetalDevice *device = (__bridge MetalDevice *) (void*) devicePtr;
-        GrMtlBackendContext backendContext = {};
-        backendContext.fDevice.retain((__bridge GrMTLHandle) device.adapter);
-        backendContext.fQueue.retain((__bridge GrMTLHandle) device.queue);
-        return (jlong) GrDirectContext::MakeMetal(backendContext).release();
-    }
-}
-
-JNIEXPORT jlong JNICALL Java_org_jetbrains_skiko_redrawer_MetalRedrawer_makeMetalRenderTarget(
-    JNIEnv * env, jobject redrawer, jlong devicePtr, jint width, jint height)
-{
-    @autoreleasepool {
-        MetalDevice *device = (__bridge MetalDevice *) (void *) devicePtr;
-        GrBackendRenderTarget* renderTarget = NULL;
-
-        id<CAMetalDrawable> currentDrawable = [device.layer nextDrawable];
-        if (!currentDrawable) return 0;
-        device.drawableHandle = currentDrawable;
-        GrMtlTextureInfo info;
-        info.fTexture.retain((__bridge GrMTLHandle) currentDrawable.texture);
-        renderTarget = new GrBackendRenderTarget(width, height, 0, info);
-        return (jlong) renderTarget;
-    }
-}
-
-extern "C" void* objc_autoreleasePoolPush(void);
-extern "C" void objc_autoreleasePoolPop(void*);
-
-JNIEXPORT jlong JNICALL Java_org_jetbrains_skiko_redrawer_MetalRedrawer_startRendering(
-    JNIEnv * env, jobject redrawer)
-{
-    return (jlong)objc_autoreleasePoolPush();
-}
-
-JNIEXPORT void JNICALL Java_org_jetbrains_skiko_redrawer_MetalRedrawer_endRendering(
-    JNIEnv * env, jobject redrawer, jlong handle)
-{
-    objc_autoreleasePoolPop((void*)handle);
-}
-
-BOOL isUsingIntegratedGPU() {
-    kern_return_t kernResult = 0;
-    io_iterator_t iterator = IO_OBJECT_NULL;
-    io_service_t service = IO_OBJECT_NULL;
-    
-    kernResult = IOServiceGetMatchingServices(kIOMasterPortDefault, IOServiceMatching(kDriverClassName), &iterator);
-    assert(kernResult == KERN_SUCCESS);
-
-    service = IOIteratorNext(iterator);
-    io_connect_t switcherConnect;
-    
-    kernResult = IOServiceOpen(service, mach_task_self(), 0, &switcherConnect);
-    if (kernResult != KERN_SUCCESS) return 0;
-    
-    kernResult = IOConnectCallScalarMethod(switcherConnect, kOpen, NULL, 0, NULL, NULL);
-    if (kernResult != KERN_SUCCESS) return 0;
-
-    uint64_t output;
-    uint32_t outputCount = 1;
-    uint64_t scalarI_64[2] = { 1, MuxGraphicsCard };
-    
-    kernResult = IOConnectCallScalarMethod(switcherConnect,
-                                           kGetMuxState,
-                                           scalarI_64,
-                                           2,
-                                           &output,
-                                           &outputCount);
-    if (kernResult != KERN_SUCCESS) return 0;
-    return output != 0;
-}
-
-id<MTLDevice> MTLCreateIntegratedDevice(int adapterPriority) {
-    BOOL isIntegratedGPU = NO;
-
-    if (adapterPriority == AdpapterPriorityAuto) {
-        isIntegratedGPU = isUsingIntegratedGPU();
-    } else if (adapterPriority == AdpapterPriorityIntegrated) {
-        isIntegratedGPU = YES;
-    }
-
-    id<MTLDevice> gpu = nil;
-
-    if (isIntegratedGPU) {
-        NSArray<id<MTLDevice>> *devices = MTLCopyAllDevices();
-        for (id<MTLDevice> device in devices) {
-            if (device.isLowPower) {
-                gpu = device;
-                break;
-            }
-        }
-    }
-    if (gpu == nil) {
-        gpu = MTLCreateSystemDefaultDevice();
-    }
-    return gpu;
-}
-
-JNIEXPORT jlong JNICALL Java_org_jetbrains_skiko_redrawer_MetalRedrawer_chooseAdapter(
-    JNIEnv *env, jobject redrawer, jlong adapterPriority)
-{
-    @autoreleasepool {
-        id<MTLDevice> adapter = MTLCreateIntegratedDevice(adapterPriority);
-        return (jlong) (__bridge_retained void *) adapter;
-    }
-}
-
 JNIEXPORT jlong JNICALL Java_org_jetbrains_skiko_redrawer_MetalRedrawer_createMetalDevice(
-    JNIEnv *env, jobject redrawer, jlong windowPtr, jboolean transparency, jlong adapterPtr, jlong platformInfoPtr)
+    JNIEnv *env, jobject redrawer, jlong windowPtr, jboolean transparency, jint frameBuffering, jlong adapterPtr, jlong platformInfoPtr)
 {
     @autoreleasepool {
-        id<MTLDevice> adapter = (__bridge_transfer id<MTLDevice>) (void *) adapterPtr;
+        id<MTLDevice> adapter = (__bridge id<MTLDevice>) (void *) adapterPtr;
 
         MetalDevice *device = [MetalDevice new];
 
@@ -202,10 +154,14 @@ JNIEXPORT jlong JNICALL Java_org_jetbrains_skiko_redrawer_MetalRedrawer_createMe
         [container setNeedsDisplayOnBoundsChange: YES];
 
         AWTMetalLayer *layer = [AWTMetalLayer new];
+        if (frameBuffering == 2 || frameBuffering == 3) {
+            layer.maximumDrawableCount = frameBuffering;
+        }
+
         [container addSublayer: layer];
         layer.javaRef = env->NewGlobalRef(redrawer);
 
-        id<MTLCommandQueue> fQueue = [adapter newCommandQueue];
+        id<MTLCommandQueue> fQueue = [MTLCommandQueueCache.sharedCache commandQueueForDevice:adapter];
 
         device.container = container;
         device.layer = layer;
@@ -219,12 +175,24 @@ JNIEXPORT jlong JNICALL Java_org_jetbrains_skiko_redrawer_MetalRedrawer_createMe
         CGFloat transparent[] = { 0.0f, 0.0f, 0.0f, 0.0f };
         device.layer.backgroundColor = CGColorCreate(CGColorSpaceCreateDeviceRGB(), transparent);
         device.layer.opaque = NO;
+        device.layer.framebufferOnly = NO;
 
-        if (transparency)
-        {
-            NSWindow* window = (__bridge NSWindow*) (void *) windowPtr;
-            window.hasShadow = NO;
-        }
+        /// max inflight command buffers count matches swapchain size to avoid overcommitment
+        device.inflightSemaphore = dispatch_semaphore_create(device.layer.maximumDrawableCount);
+
+        NSWindow* window = (__bridge NSWindow*) (void *) windowPtr;
+        setWindowProperties(window, transparency);
+
+        jmethodID onOcclusionStateChanged = getOnOcclusionStateChangedMethodID(env, redrawer);
+        device.occlusionObserver =
+            [[NSNotificationCenter defaultCenter] addObserverForName:NSWindowDidChangeOcclusionStateNotification
+                                                              object:window
+                                                               queue:[NSOperationQueue mainQueue]
+                                                          usingBlock:^(NSNotification * _Nonnull note) {
+                BOOL isOccluded = ([window occlusionState] & NSWindowOcclusionStateVisible) == 0;
+                JNIEnv *jniEnv = resolveJNIEnvForCurrentThread();
+                jniEnv->CallObjectMethod(layer.javaRef, onOcclusionStateChanged, isOccluded);
+            }];
 
         return (jlong) (__bridge_retained void *) device;
     }
@@ -251,6 +219,23 @@ JNIEXPORT void JNICALL Java_org_jetbrains_skiko_redrawer_MetalRedrawer_resizeLay
     }
 }
 
+JNIEXPORT void JNICALL Java_org_jetbrains_skiko_redrawer_MetalRedrawer_setLayerVisible(
+    JNIEnv *env, jobject redrawer, jlong devicePtr, jboolean isVisible)
+{
+    @autoreleasepool {
+        MetalDevice *device = (__bridge MetalDevice *) (void *) devicePtr;
+        BOOL hidden = !isVisible;
+        if (!device || !device.layer || device.layer.hidden == hidden) {
+            return;
+        }
+        [CATransaction begin];
+        [CATransaction setValue:(id)kCFBooleanTrue forKey:kCATransactionDisableActions];
+        device.layer.hidden = hidden;
+        [CATransaction commit];
+        [CATransaction flush];
+    }
+}
+
 JNIEXPORT void JNICALL Java_org_jetbrains_skiko_redrawer_MetalRedrawer_setContentScale(JNIEnv *env, jobject obj, jlong devicePtr, jfloat contentScale)
 {
     @autoreleasepool {
@@ -268,29 +253,11 @@ JNIEXPORT void JNICALL Java_org_jetbrains_skiko_redrawer_MetalRedrawer_setConten
     }
 }
 
-JNIEXPORT void JNICALL Java_org_jetbrains_skiko_redrawer_MetalRedrawer_setVSyncEnabled(JNIEnv *env, jobject obj, jlong devicePtr, jboolean enabled)
+JNIEXPORT void JNICALL Java_org_jetbrains_skiko_redrawer_MetalRedrawer_setDisplaySyncEnabled(JNIEnv *env, jobject obj, jlong devicePtr, jboolean enabled)
 {
     @autoreleasepool {
         MetalDevice *device = (__bridge MetalDevice *) (void *) devicePtr;
         device.layer.displaySyncEnabled = enabled;
-    }
-}
-
-JNIEXPORT void JNICALL Java_org_jetbrains_skiko_redrawer_MetalRedrawer_finishFrame(
-    JNIEnv *env, jobject redrawer, jlong devicePtr)
-{
-    @autoreleasepool {
-        MetalDevice *device = (__bridge MetalDevice *) (void *) devicePtr;
-
-        id<CAMetalDrawable> currentDrawable = device.drawableHandle;
-
-        if (currentDrawable) {
-            id<MTLCommandBuffer> commandBuffer = [device.queue commandBuffer];
-            commandBuffer.label = @"Present";
-            [commandBuffer presentDrawable:currentDrawable];
-            [commandBuffer commit];
-            device.drawableHandle = nil;
-        }
     }
 }
 
@@ -300,36 +267,9 @@ JNIEXPORT void JNICALL Java_org_jetbrains_skiko_redrawer_MetalRedrawer_disposeDe
     @autoreleasepool {
         MetalDevice *device = (__bridge_transfer MetalDevice *) (void *) devicePtr;
         env->DeleteGlobalRef(device.layer.javaRef);
+        [[NSNotificationCenter defaultCenter] removeObserver:device.occlusionObserver];
         [device.layer removeFromSuperlayer];
         [CATransaction flush];
-    }
-}
-
-JNIEXPORT jstring JNICALL Java_org_jetbrains_skiko_redrawer_MetalRedrawer_getAdapterName(
-    JNIEnv *env, jobject redrawer, jlong adapterPtr)
-{
-    @autoreleasepool {
-        id<MTLDevice> adapter = (__bridge id<MTLDevice>) (void *) adapterPtr;
-        const char *currentAdapterName = [[adapter name] cStringUsingEncoding:NSASCIIStringEncoding];
-        return env->NewStringUTF(currentAdapterName);
-    }
-}
-
-JNIEXPORT jlong JNICALL Java_org_jetbrains_skiko_redrawer_MetalRedrawer_getAdapterMemorySize(
-    JNIEnv *env, jobject redrawer, jlong adapterPtr)
-{
-    @autoreleasepool {
-        id<MTLDevice> adapter = (__bridge id<MTLDevice>) (void *) adapterPtr;
-        uint64_t totalMemory = [adapter recommendedMaxWorkingSetSize];
-        return (jlong)totalMemory;
-    }
-}
-
-JNIEXPORT jboolean JNICALL Java_org_jetbrains_skiko_redrawer_MetalRedrawer_isOccluded(
-    JNIEnv *env, jobject redrawer, jlong windowPtr) {
-    @autoreleasepool {
-        NSWindow* window = (__bridge NSWindow*) (void *) windowPtr;
-        return ([window occlusionState] & NSWindowOcclusionStateVisible) == 0;
     }
 }
 
